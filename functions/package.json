@@ -1,0 +1,28 @@
+{
+  "name": "ecosched-functions",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions for EcoSched",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc -p ./",
+    "clean": "rimraf lib",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "npm run build && firebase deploy --only functions",
+    "lint": "eslint --ext .ts src"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "eslint": "^8.57.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.4.5"
+  }
+}
+
+

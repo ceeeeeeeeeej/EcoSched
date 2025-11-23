@@ -1,0 +1,433 @@
+import 'package:flutter/material.dart';
+import '../../core/theme/app_theme.dart';
+import '../../widgets/enhanced_nature_background.dart';
+import '../../widgets/glassmorphic_container.dart';
+import '../../widgets/animated_button.dart';
+import '../../widgets/nature_animations.dart';
+import '../../core/transitions/nature_transitions.dart';
+import '../../core/routes/app_router.dart';
+import '../../core/services/auth_service.dart';
+import 'package:provider/provider.dart';
+import '../resident/screens/resident_location_selection_screen.dart';
+
+class LandingPageScreen extends StatefulWidget {
+  const LandingPageScreen({super.key});
+
+  @override
+  State<LandingPageScreen> createState() => _LandingPageScreenState();
+}
+
+class _LandingPageScreenState extends State<LandingPageScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    ));
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.2),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _pulseAnimation = Tween<double>(
+      begin: 0.95,
+      end: 1.05,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+
+    _fadeController.forward();
+    _slideController.forward();
+    _pulseController.repeat(reverse: true);
+
+    // If already authenticated (collector), skip landing and go straight to home
+    // Residents don't need authentication, so they always see landing page
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      if (auth.isAuthenticated && auth.isCollector()) {
+        context.goHomeForRole();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    _slideController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _navigateToLocationSelection(String barangay) {
+    debugPrint('Navigating to location selection with barangay: $barangay');
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ResidentLocationSelectionScreen(selectedBarangay: barangay),
+      ),
+    );
+  }
+
+  void _navigateToCollectorLogin() {
+    Navigator.of(context).pushNamed(AppRoutes.collectorLogin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          EnhancedNatureBackground(
+            showPattern: true,
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(AppTheme.spacing8), 
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 20),
+                    
+                    // App Logo and Title
+                    FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: SlideTransition(
+                        position: _slideAnimation,
+                        child: Column(
+                          children: [
+                            AnimatedBuilder(
+                              animation: _pulseAnimation,
+                              builder: (context, child) {
+                                return Transform.scale(
+                                  scale: _pulseAnimation.value,
+                                  child: NatureHeroAnimation(
+                                    tag: 'landing_logo',
+                                    child: EcoPulseAnimation(
+                                      isActive: true,
+                                      child: NatureRippleEffect(
+                                        rippleColor: AppTheme.primaryGreen,
+                                        child: Container(
+                                          width: 120,
+                                          height: 120,
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: AppTheme.primaryGradient,
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            ),
+                                            borderRadius: BorderRadius.circular(30),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: AppTheme.primaryGreen.withOpacity(0.4),
+                                                blurRadius: 30,
+                                                offset: const Offset(0, 15),
+                                              ),
+                                            ],
+                                          ),
+                                          child: const Icon(
+                                            Icons.eco,
+                                            size: 60,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 24),
+                            NatureBounceAnimation(
+                              isActive: true,
+                              child: Text(
+                                'Welcome to EcoSched',
+                                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.textDark,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            EcoShimmerEffect(
+                              isActive: true,
+                              baseColor: AppTheme.textLight.withOpacity(0.3),
+                              highlightColor: AppTheme.textLight,
+                              child: Text(
+                                'Choose your location to get started',
+                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  color: AppTheme.textLight,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 50),
+                    
+                    // Barangay Selection Cards
+                    FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: SlideTransition(
+                        position: _slideAnimation,
+                        child: Column(
+                          children: [
+                            // Victoria Card
+                            _buildBarangayCard(
+                              'Victoria',
+                              Icons.location_city,
+                              AppTheme.primaryGreen,
+                              AppTheme.primaryGradient,
+                              'Select Victoria barangay',
+                            ),
+                            const SizedBox(height: 20),
+                            // Dayo-an Card
+                            _buildBarangayCard(
+                              'Dayo-an',
+                              Icons.location_city,
+                              AppTheme.accentOrange,
+                              AppTheme.primaryGradient,
+                              'Select Dayo-an barangay',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 40),
+                    
+                    // Collector Login Button
+                    FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: SlideTransition(
+                        position: _slideAnimation,
+                        child: Column(
+                          children: [
+                            Text(
+                              'Are you a collector?',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            NatureRippleEffect(
+                              rippleColor: AppTheme.accentBlue,
+                              child: AnimatedButton(
+                                text: 'Collector Login',
+                                onPressed: _navigateToCollectorLogin,
+                                width: double.infinity,
+                                icon: Icons.local_shipping,
+                                backgroundColor: AppTheme.accentBlue,
+                                isGradient: true,
+                                gradientColors: [
+                                  AppTheme.accentBlue,
+                                  AppTheme.accentBlue.withOpacity(0.8),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 30),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Floating Nature Elements (non-interactive)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: FloatingLeaves(
+                leafCount: 15,
+                speed: 0.7,
+                leafColor: AppTheme.primaryGreen,
+                isActive: true,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: FloatingParticles(
+                particleCount: 20,
+                speed: 0.9,
+                colors: <Color>[
+                  AppTheme.primaryGreen,
+                  AppTheme.accentOrange,
+                  AppTheme.accentBlue,
+                  AppTheme.primaryGreenLight,
+                ],
+                isActive: true,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBarangayCard(
+    String barangay,
+    IconData icon,
+    Color color,
+    List<Color> gradient,
+    String description,
+  ) {
+    return GestureDetector(
+      onTap: () {
+        debugPrint('Barangay card tapped: $barangay');
+        _navigateToLocationSelection(barangay);
+      },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            debugPrint('InkWell tapped: $barangay');
+            _navigateToLocationSelection(barangay);
+          },
+          borderRadius: BorderRadius.circular(AppTheme.radiusL),
+          child: NatureRippleEffect(
+            rippleColor: color,
+            child: GlassmorphicContainer(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              borderRadius: AppTheme.radiusL,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      color.withOpacity(0.1),
+                      color.withOpacity(0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                  border: Border.all(
+                    color: color.withOpacity(0.3),
+                    width: 2,
+                  ),
+                ),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: gradient,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withOpacity(0.3),
+                          blurRadius: 15,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 40,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    barangay,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textLight,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.arrow_forward,
+                          size: 16,
+                          color: color,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Select',
+                          style: TextStyle(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
