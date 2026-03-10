@@ -122,6 +122,19 @@ Deno.serve(async (req: Request) => {
             body: JSON.stringify(fcmPayload),
         });
 
+        if (!fcmResponse.ok) {
+            const fcmErrText = await fcmResponse.text();
+            console.error(`❌ FCM API Error (${fcmResponse.status}):`, fcmErrText);
+            return new Response(JSON.stringify({ 
+                error: 'FCM API Error', 
+                status: fcmResponse.status,
+                details: fcmErrText
+            }), {
+                status: 502,
+                headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            });
+        }
+
         const fcmResult = await fcmResponse.json();
         console.log('✅ FCM response:', JSON.stringify(fcmResult));
 
@@ -132,7 +145,7 @@ Deno.serve(async (req: Request) => {
                 headers: { 
                     'Content-Type': 'application/json', 
                     'Access-Control-Allow-Origin': '*',
-                    'X-Edge-Function-Version': 'v3-hardened'
+                    'X-Edge-Function-Version': 'v4-robust-fcm'
                 },
             }
         );
