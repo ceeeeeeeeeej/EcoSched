@@ -35,6 +35,13 @@ class GlassmorphicContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    final surface = color ?? scheme.surface;
+    final double effectiveOpacity = opacity.clamp(0.0, 1.0);
+
     return Container(
       width: width,
       height: height,
@@ -50,28 +57,31 @@ class GlassmorphicContainer extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  (color ?? Colors.white).withOpacity(opacity),
-                  (color ?? Colors.white).withOpacity(opacity * 0.8),
+                  surface.withOpacity(effectiveOpacity),
+                  surface.withOpacity(effectiveOpacity * 0.8),
                 ],
               ),
               borderRadius: BorderRadius.circular(borderRadius),
               border: showBorder
                   ? Border.all(
-                      color: borderColor ?? Colors.white.withOpacity(0.3),
+                      color: borderColor ??
+                          (isDark
+                              ? Colors.white.withOpacity(0.10)
+                              : Colors.white.withOpacity(0.28)),
                       width: borderWidth,
                     )
                   : null,
               boxShadow: customShadows ??
                   [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
+                      color: Colors.black.withOpacity(isDark ? 0.25 : 0.08),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
                     ),
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
-                      blurRadius: 40,
-                      offset: const Offset(0, 16),
+                      color: Colors.black.withOpacity(isDark ? 0.12 : 0.03),
+                      blurRadius: 60,
+                      offset: const Offset(0, 24),
                     ),
                   ],
             ),

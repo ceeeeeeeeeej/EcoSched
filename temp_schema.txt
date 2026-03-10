@@ -1,0 +1,1 @@
+["id","resident_name","resident_barangay","resident_purok","waste_type","estimated_quantity","pickup_location","message","status","scheduled_date","scheduled_time","collector_id","created_at","updated_at","device_token"]

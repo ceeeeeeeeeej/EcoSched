@@ -5,7 +5,7 @@ class AppStateProvider extends ChangeNotifier {
   String? _error;
   String? _currentUser;
   String _selectedRole = '';
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.light;
 
   // Getters
   bool get isLoading => _isLoading;
@@ -45,6 +45,13 @@ class AppStateProvider extends ChangeNotifier {
   void setThemeMode(ThemeMode mode) {
     _themeMode = mode;
     notifyListeners();
+  }
+
+  bool isDarkMode(Brightness platformBrightness) {
+    if (_themeMode == ThemeMode.system) {
+      return platformBrightness == Brightness.dark;
+    }
+    return _themeMode == ThemeMode.dark;
   }
 
   // Combined state updates

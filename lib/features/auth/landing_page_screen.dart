@@ -7,8 +7,9 @@ import '../../widgets/nature_animations.dart';
 import '../../core/transitions/nature_transitions.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/pickup_service.dart';
+import '../../core/services/notification_service.dart';
 import 'package:provider/provider.dart';
-import '../resident/screens/resident_location_selection_screen.dart';
 
 class LandingPageScreen extends StatefulWidget {
   const LandingPageScreen({super.key});
@@ -29,12 +30,12 @@ class _LandingPageScreenState extends State<LandingPageScreen>
   @override
   void initState() {
     super.initState();
-    
+
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    
+
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
@@ -91,13 +92,31 @@ class _LandingPageScreenState extends State<LandingPageScreen>
     super.dispose();
   }
 
-  void _navigateToLocationSelection(String barangay) {
-    debugPrint('Navigating to location selection with barangay: $barangay');
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ResidentLocationSelectionScreen(selectedBarangay: barangay),
-      ),
+  void _navigateToResidentDashboard(String barangay) {
+    final auth = context.read<AuthService>();
+    final pickupService = context.read<PickupService>();
+
+    const purok = 'Purok 1';
+    auth.setResidentLocation(barangay: barangay, purok: purok);
+
+    final serviceArea = _mapBarangayToServiceArea(barangay);
+    pickupService.loadSchedulesForServiceArea(serviceArea);
+    NotificationService.subscribeToServiceAreaTopic(serviceArea,
+        userId: auth.residentId);
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      AppRoutes.residentDashboard,
+      (route) => false,
     );
+  }
+
+  String _mapBarangayToServiceArea(String barangay) {
+    final value = barangay.trim().toLowerCase();
+    if (value.contains('victoria')) return 'victoria';
+    if (value.contains('dayo-an') || value.contains('dayo-ay'))
+      return 'dayo-an';
+    if (value.contains('visitor')) return 'visitors';
+    return 'victoria';
   }
 
   void _navigateToCollectorLogin() {
@@ -113,12 +132,12 @@ class _LandingPageScreenState extends State<LandingPageScreen>
             showPattern: true,
             child: SafeArea(
               child: SingleChildScrollView(
-                padding: EdgeInsets.all(AppTheme.spacing8), 
+                padding: EdgeInsets.all(AppTheme.spacing8),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(height: 20),
-                    
+
                     // App Logo and Title
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -146,10 +165,12 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                                               begin: Alignment.topLeft,
                                               end: Alignment.bottomRight,
                                             ),
-                                            borderRadius: BorderRadius.circular(30),
+                                            borderRadius:
+                                                BorderRadius.circular(30),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: AppTheme.primaryGreen.withOpacity(0.4),
+                                                color: AppTheme.primaryGreen
+                                                    .withOpacity(0.4),
                                                 blurRadius: 30,
                                                 offset: const Offset(0, 15),
                                               ),
@@ -171,12 +192,16 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                             NatureBounceAnimation(
                               isActive: true,
                               child: Text(
-                                'Welcome to EcoSched',
-                                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.textDark,
-                                  letterSpacing: -0.5,
-                                ),
+                                'Experience EcoSched',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.textDark,
+                                      letterSpacing: -0.5,
+                                    ),
+                                textAlign: TextAlign.center,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -185,11 +210,14 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                               baseColor: AppTheme.textLight.withOpacity(0.3),
                               highlightColor: AppTheme.textLight,
                               child: Text(
-                                'Choose your location to get started',
-                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  color: AppTheme.textLight,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                'Select your location to begin',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleSmall
+                                    ?.copyWith(
+                                      color: AppTheme.textLight,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                 textAlign: TextAlign.center,
                               ),
                             ),
@@ -197,9 +225,9 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 50),
-                    
+
                     // Barangay Selection Cards
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -210,27 +238,36 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                             // Victoria Card
                             _buildBarangayCard(
                               'Victoria',
-                              Icons.location_city,
-                              AppTheme.primaryGreen,
+                              Icons.location_city_rounded,
+                              AppTheme.primary,
                               AppTheme.primaryGradient,
-                              'Select Victoria barangay',
+                              'Access local schedules for Victoria',
                             ),
                             const SizedBox(height: 20),
                             // Dayo-an Card
                             _buildBarangayCard(
                               'Dayo-an',
-                              Icons.location_city,
-                              AppTheme.accentOrange,
-                              AppTheme.primaryGradient,
-                              'Select Dayo-an barangay',
+                              Icons.location_city_rounded,
+                              AppTheme.accentBlue,
+                              AppTheme.secondaryGradient,
+                              'Access local schedules for Dayo-an',
+                            ),
+                            const SizedBox(height: 20),
+                            // Visitors Card
+                            _buildBarangayCard(
+                              'Visitors',
+                              Icons.people_alt_rounded,
+                              AppTheme.accentBlue,
+                              AppTheme.secondaryGradient,
+                              'Access general information as a visitor',
                             ),
                           ],
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 40),
-                    
+
                     // Collector Login Button
                     FadeTransition(
                       opacity: _fadeAnimation,
@@ -239,32 +276,33 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                         child: Column(
                           children: [
                             Text(
-                              'Are you a collector?',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: AppTheme.textMuted,
-                              ),
+                              'Waste Collector?',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: AppTheme.textMuted,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                             const SizedBox(height: 16),
                             NatureRippleEffect(
                               rippleColor: AppTheme.accentBlue,
                               child: AnimatedButton(
-                                text: 'Collector Login',
+                                text: 'Collector Sign In',
                                 onPressed: _navigateToCollectorLogin,
                                 width: double.infinity,
-                                icon: Icons.local_shipping,
+                                icon: Icons.local_shipping_rounded,
                                 backgroundColor: AppTheme.accentBlue,
                                 isGradient: true,
-                                gradientColors: [
-                                  AppTheme.accentBlue,
-                                  AppTheme.accentBlue.withOpacity(0.8),
-                                ],
+                                gradientColors: AppTheme.secondaryGradient,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 30),
                   ],
                 ),
@@ -319,15 +357,13 @@ class _LandingPageScreenState extends State<LandingPageScreen>
   ) {
     return GestureDetector(
       onTap: () {
-        debugPrint('Barangay card tapped: $barangay');
-        _navigateToLocationSelection(barangay);
+        _navigateToResidentDashboard(barangay);
       },
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            debugPrint('InkWell tapped: $barangay');
-            _navigateToLocationSelection(barangay);
+            _navigateToResidentDashboard(barangay);
           },
           borderRadius: BorderRadius.circular(AppTheme.radiusL),
           child: NatureRippleEffect(
@@ -352,76 +388,78 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                     width: 2,
                   ),
                 ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: gradient,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 8),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: gradient,
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 40,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    barangay,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    description,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textLight,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.arrow_forward,
-                          size: 16,
-                          color: color,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Select',
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.w600,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withOpacity(0.3),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 40,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(height: 16),
+                    Text(
+                      barangay,
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: color,
+                                letterSpacing: -0.5,
+                              ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.textLight,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.arrow_forward,
+                            size: 16,
+                            color: color,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Select',
+                            style: TextStyle(
+                              color: color,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -430,4 +468,3 @@ class _LandingPageScreenState extends State<LandingPageScreen>
     );
   }
 }
-

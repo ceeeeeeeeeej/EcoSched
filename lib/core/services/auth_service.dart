@@ -1,27 +1,237 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../config/supabase_config.dart';
+import 'background_service.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
+import '../utils/id_utils.dart';
 
 class AuthService extends ChangeNotifier {
-  // Mock user data for now
   Map<String, dynamic>? _user;
   bool _isLoading = false;
   String? _error;
-
-  // Mock database to store user roles
-  static final Map<String, Map<String, dynamic>> _mockUserDatabase = {};
+  bool _isAuthCheckComplete = false;
 
   // Getters
   Map<String, dynamic>? get user => _user;
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _user != null;
+  bool get isAuthCheckComplete => _isAuthCheckComplete;
+  String? get deviceId => _lastDeviceId;
+  String? get residentId => _user?['uid'];
 
   // For residents, consider them "authenticated" if they have location set
   bool get isResidentWithLocation =>
       _user != null && _user!['role'] == 'resident';
 
+  static const String _prefKeyBarangay = 'resident_barangay';
+  static const String _prefKeyPurok = 'resident_purok';
+  static const String _prefKeyUserId = 'resident_user_id';
+  static const String _prefKeyDeviceId = 'last_device_id';
+
   AuthService() {
-    // Initialize with no user
-    _user = null;
+    _initializeAuthState();
+  }
+
+  // Initialize auth state listener
+  Future<void> _initializeAuthState() async {
+    // Listen for Supabase auth changes
+    SupabaseConfig.auth.onAuthStateChange.listen((data) {
+      final event = data.event;
+      final session = data.session;
+
+      if (event == AuthChangeEvent.signedIn && session != null) {
+        _loadUserProfile(session.user.id).then((_) {
+          if (_user != null) {
+            final serviceArea =
+                _user!['serviceArea'] ?? _user!['barangay'] ?? 'Mahayag';
+            BackgroundService.setSession(serviceArea: serviceArea);
+          }
+        });
+      } else if (event == AuthChangeEvent.signedOut) {
+        _user = null;
+        _clearResidentPersistence();
+        notifyListeners();
+      }
+    });
+
+    // Check current Supabase session
+    final currentUser = SupabaseConfig.auth.currentUser;
+    if (currentUser != null) {
+      await _loadUserProfile(currentUser.id);
+      if (_user != null) {
+        final serviceArea =
+            _user!['serviceArea'] ?? _user!['barangay'] ?? 'Mahayag';
+        BackgroundService.setSession(serviceArea: serviceArea);
+      }
+    } else {
+      // For residents, we now perform a fallback to a synthetic UUID
+      try {
+        // await signInAnonymously(); // DISABLED: Anonymous sign-ins are disabled in Supabase
+
+        final deviceId = await _getDeviceId();
+        await _loadResidentLocation(fallbackId: deviceId);
+      } catch (e) {
+        if (kDebugMode) print('Error during auto guest session setup: $e');
+        final deviceId = await _getDeviceId();
+        await _loadResidentLocation(fallbackId: deviceId);
+      }
+    }
+
+    _isAuthCheckComplete = true;
+    notifyListeners();
+  }
+
+  Future<void> _loadResidentLocation({String? fallbackId}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final barangay = prefs.getString(_prefKeyBarangay);
+      final purok = prefs.getString(_prefKeyPurok);
+      String? userId = prefs.getString(_prefKeyUserId);
+
+      // If no persisted userId but we have a fallback (device ID), use it
+      if (userId == null && fallbackId != null) {
+        userId = IdUtils.generateUuidFromSeed(fallbackId);
+      }
+
+      if (barangay != null && purok != null) {
+        setResidentLocation(
+          barangay: barangay,
+          purok: purok,
+          userId: userId,
+          persist: false,
+        );
+      } else if (userId != null) {
+        // Establish guest session even without location
+        _user = {
+          'uid': userId,
+          'role': 'resident',
+          'displayName': 'Guest Resident',
+        };
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error loading resident location: $e');
+    }
+  }
+
+  Future<void> _persistResidentLocation(
+      String barangay, String purok, String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKeyBarangay, barangay);
+      await prefs.setString(_prefKeyPurok, purok);
+      await prefs.setString(_prefKeyUserId, userId);
+      if (_lastDeviceId != null) {
+        await prefs.setString(_prefKeyDeviceId, _lastDeviceId!);
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error persisting resident location: $e');
+    }
+  }
+
+  Future<void> _clearResidentPersistence() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefKeyBarangay);
+      await prefs.remove(_prefKeyPurok);
+      await prefs.remove(_prefKeyUserId);
+      await prefs.remove(_prefKeyDeviceId);
+    } catch (e) {
+      if (kDebugMode) print('Error clearing resident persistence: $e');
+    }
+  }
+
+  // Load user profile from database
+  Future<void> _loadUserProfile(String userId) async {
+    try {
+      final response = await SupabaseConfig.client
+          .from(SupabaseConfig.usersTable)
+          .select()
+          .eq('id', userId)
+          .single();
+
+      final firstName = response['first_name'] as String? ?? '';
+      final lastName = response['last_name'] as String? ?? '';
+      final displayName = '$firstName $lastName'.trim();
+
+      _user = {
+        'uid': response['id'],
+        'email': response['email'],
+        'displayName': displayName.isNotEmpty
+            ? displayName
+            : (response['email'] as String).split('@')[0],
+        'firstName': firstName,
+        'lastName': lastName,
+        'phone': response['phone'],
+        'role': response['role'],
+        'status': response['status'],
+        'photoURL': response['photo_url'],
+        'barangay': response['barangay'],
+        'purok': response['purok'],
+        'emailVerified': true, // Supabase handles email verification
+      };
+      notifyListeners();
+    } catch (e) {
+      // If user profile doesn't exist in users table, check registered_collectors
+      try {
+        final collectorResponse = await SupabaseConfig.client
+            .from(SupabaseConfig.registeredCollectorsTable)
+            .select()
+            .eq('user_id', userId)
+            .single();
+
+        final firstName = collectorResponse['first_name'] as String? ?? '';
+        final lastName = collectorResponse['last_name'] as String? ?? '';
+        final displayName = '$firstName $lastName'.trim();
+
+        _user = {
+          'uid': userId,
+          'email': collectorResponse['email'],
+          'displayName': displayName.isNotEmpty ? displayName : 'Collector',
+          'firstName': firstName,
+          'lastName': lastName,
+          'phone': collectorResponse['phone'],
+          'role': collectorResponse['role'],
+          'status': collectorResponse['status'],
+          'photoURL': null,
+          'emailVerified': true,
+        };
+        notifyListeners();
+      } catch (e) {
+        // If still not found, create basic user profile from Auth Meta
+        final currentUser = SupabaseConfig.auth.currentUser;
+        if (currentUser != null) {
+          // Try to get name from metadata if available
+          final metaName =
+              currentUser.userMetadata?['full_name'] as String? ?? '';
+          final metaFirst =
+              currentUser.userMetadata?['first_name'] as String? ?? '';
+          final metaLast =
+              currentUser.userMetadata?['last_name'] as String? ?? '';
+
+          String displayName = metaName;
+          if (displayName.isEmpty &&
+              (metaFirst.isNotEmpty || metaLast.isNotEmpty)) {
+            displayName = '$metaFirst $metaLast'.trim();
+          }
+          if (displayName.isEmpty) {
+            displayName = 'EcoSched User';
+          }
+
+          _user = {
+            'uid': userId,
+            'email': currentUser.email,
+            'displayName': displayName,
+            'role': _inferRoleFromEmail(currentUser.email ?? ''),
+            'emailVerified': currentUser.emailConfirmedAt != null,
+          };
+          notifyListeners();
+        }
+      }
+    }
   }
 
   // Set loading state
@@ -51,33 +261,27 @@ class AuthService extends ChangeNotifier {
       _setLoading(true);
       _setError(null);
 
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 2));
+      final response = await SupabaseConfig.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
 
-      // Check if user exists in mock database
-      if (_mockUserDatabase.containsKey(email)) {
-        // User exists, retrieve their data
-        _user = Map<String, dynamic>.from(_mockUserDatabase[email]!);
-        _user!['emailVerified'] = true; // Mark as verified for login
+      if (response.user != null) {
+        await _loadUserProfile(response.user!.id);
+        return _user;
       } else {
-        // New user or demo login - determine role based on email for demo
-        String userRole = 'resident'; // default
-        if (email.contains('collector') ||
-            email.contains('demo@ecosched.com')) {
-          userRole = 'collector';
-        }
-
-        _user = {
-          'uid': 'mock_user_id',
-          'email': email,
-          'displayName': 'Demo User',
-          'emailVerified': true,
-          'role': userRole,
-        };
+        _setError('Authentication failed. Please try again.');
+        return null;
       }
-
-      notifyListeners();
-      return _user;
+    } on AuthException catch (e) {
+      String message = 'Authentication failed. Please try again.';
+      if (e.message.contains('Invalid login credentials')) {
+        message = 'Invalid email or password.';
+      } else if (e.message.contains('Email not confirmed')) {
+        message = 'Please confirm your email address.';
+      }
+      _setError(message);
+      return null;
     } catch (e) {
       _setError('An unexpected error occurred. Please try again.');
       return null;
@@ -85,6 +289,39 @@ class AuthService extends ChangeNotifier {
       _setLoading(false);
     }
   }
+
+/*
+  // Sign in anonymously (for residents)
+  Future<Map<String, dynamic>?> signInAnonymously() async {
+    try {
+      _setLoading(true);
+      _setError(null);
+
+      final response = await SupabaseConfig.auth.signInAnonymously();
+
+      if (response.user != null) {
+        await _loadUserProfile(response.user!.id);
+        
+        // After auth, try to load any persisted resident location
+        await _loadResidentLocation();
+        
+        return _user;
+      } else {
+        _setError('Anonymous authentication failed.');
+        return null;
+      }
+    } on AuthException catch (e) {
+      if (kDebugMode) print('Anonymous auth error: ${e.message}');
+      _setError('Could not establish a guest session.');
+      return null;
+    } catch (e) {
+      _setError('An unexpected error occurred.');
+      return null;
+    } finally {
+      _setLoading(false);
+    }
+  }
+*/
 
   // Sign up with email and password
   Future<Map<String, dynamic>?> signUpWithEmailAndPassword({
@@ -97,30 +334,49 @@ class AuthService extends ChangeNotifier {
       _setLoading(true);
       _setError(null);
 
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 2));
+      final nameParts = displayName?.split(' ') ?? ['', ''];
+      final firstName = nameParts[0];
+      final lastName =
+          nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
 
-      // Mock successful registration
-      final userId = 'mock_user_id_${DateTime.now().millisecondsSinceEpoch}';
-      _user = {
-        'uid': userId,
-        'email': email,
-        'displayName': displayName ?? 'New User',
-        'emailVerified': false,
-        'role': role ?? 'resident',
-      };
+      final response = await SupabaseConfig.auth.signUp(
+        email: email,
+        password: password,
+        data: {
+          'first_name': firstName,
+          'last_name': lastName,
+          'role': role ?? 'resident', // Default role in metadata
+        },
+      );
 
-      // Store user data in mock database
-      _mockUserDatabase[email] = {
-        'uid': userId,
-        'email': email,
-        'displayName': displayName ?? 'New User',
-        'emailVerified': false,
-        'role': role ?? 'resident',
-      };
+      if (response.user != null) {
+        // Create user profile in database
+        final userRole = role ?? _inferRoleFromEmail(email);
 
-      notifyListeners();
-      return _user;
+        await SupabaseConfig.client.from(SupabaseConfig.usersTable).insert({
+          'id': response.user!.id,
+          'email': email,
+          'first_name': firstName,
+          'last_name': lastName,
+          'role': userRole,
+          'status': 'active',
+        });
+
+        await _loadUserProfile(response.user!.id);
+        return _user;
+      } else {
+        _setError('Registration failed. Please try again.');
+        return null;
+      }
+    } on AuthException catch (e) {
+      String message = 'Registration failed. Please try again.';
+      if (e.message.contains('already registered')) {
+        message = 'An account already exists for that email.';
+      } else if (e.message.contains('Password should be')) {
+        message = 'Password is too weak. Please choose a stronger one.';
+      }
+      _setError(message);
+      return null;
     } catch (e) {
       _setError('An unexpected error occurred. Please try again.');
       return null;
@@ -133,24 +389,116 @@ class AuthService extends ChangeNotifier {
   void setResidentLocation({
     required String barangay,
     required String purok,
+    String? userId,
     String? currentLocation,
+    bool persist = true,
   }) {
     final locationString = '$purok, $barangay';
-    final userId = 'resident_${DateTime.now().millisecondsSinceEpoch}';
+    final serviceArea = _mapBarangayToServiceArea(barangay);
+
+    // If no userId provided, use the authenticated user ID
+    String? effectiveUserId = userId;
+
+    if (effectiveUserId == null || effectiveUserId.isEmpty) {
+      final user = SupabaseConfig.auth.currentUser;
+      if (user != null) {
+        effectiveUserId = user.id;
+      } else {
+        print("Resident mode: no authentication required");
+        final deviceId = _lastDeviceId ?? 'guest';
+        effectiveUserId = IdUtils.generateUuidFromSeed(deviceId);
+      }
+    }
 
     _user = {
-      'uid': userId,
+      'uid': effectiveUserId,
       'displayName': 'Resident',
       'emailVerified': false,
       'role': 'resident',
       'barangay': barangay,
       'purok': purok,
       'location': locationString,
+      'serviceArea': serviceArea,
       if (currentLocation != null && currentLocation.isNotEmpty)
         'currentLocation': currentLocation,
     };
 
+    if (persist) {
+      _persistResidentLocation(barangay, purok, effectiveUserId);
+    }
+
     notifyListeners();
+  }
+
+  /// Automatically register a resident in the database for tracking in the Admin Dashboard
+  Future<void> registerResidentInDatabase({
+    required String barangay,
+    required String userId,
+    String? purok,
+  }) async {
+    try {
+      if (kDebugMode) {
+        print('📡 Automatically registering resident: $userId in $barangay');
+      }
+
+      final now = DateTime.now().toIso8601String();
+
+      // Upsert user record for resident tracking
+      await SupabaseConfig.client.from(SupabaseConfig.usersTable).upsert({
+        'id': userId,
+        'first_name': 'Guest',
+        'last_name': 'Resident',
+        'role': 'resident',
+        'barangay': barangay,
+        'purok': purok ?? '',
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+      }, onConflict: 'id');
+
+      if (kDebugMode) {
+        print('✅ Resident registered successfully: $userId');
+
+        // Immediate verification
+        final verification = await SupabaseConfig.client
+            .from(SupabaseConfig.usersTable)
+            .select()
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (verification != null) {
+          print(
+              '🔍 Verified database record: FOUND for $userId in ${verification['barangay']}');
+        } else {
+          print(
+              '⚠️ Verified database record: NOT FOUND for $userId immediately after upsert!');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error auto-registering resident: $e');
+      }
+      // We don't throw here to avoid blocking the user if registration fails
+      // (as long as they are geofenced correctly)
+    }
+  }
+
+  String _mapBarangayToServiceArea(String barangay) {
+    final value = barangay.trim().toLowerCase();
+    if (value.contains('victoria')) {
+      return 'victoria';
+    }
+    if (value.contains('dayo-an') || value.contains('dayo-ay')) {
+      return 'dayo-an';
+    }
+    if (value.contains('mahayag')) {
+      return 'mahayag';
+    }
+    if (value.contains('visitor')) {
+      return 'visitors';
+    }
+    // Return the first part if it's a comma separated string (e.g. "Victoria, Tago" -> "victoria")
+    return value.split(',')[0].trim();
   }
 
   // Sign in with location (barangay and purok) - kept for backward compatibility
@@ -162,45 +510,18 @@ class AuthService extends ChangeNotifier {
     return _user;
   }
 
-  // Sign in with Google
-  Future<Map<String, dynamic>?> signInWithGoogle() async {
-    try {
-      _setLoading(true);
-      _setError(null);
-
-      // Simulate Google sign-in
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Mock successful Google login
-      _user = {
-        'uid': 'google_user_id_${DateTime.now().millisecondsSinceEpoch}',
-        'email': 'user@gmail.com',
-        'displayName': 'Google User',
-        'emailVerified': true,
-        'photoURL': 'https://via.placeholder.com/150',
-        'role': 'resident', // default for Google sign-in
-      };
-
-      notifyListeners();
-      return _user;
-    } catch (e) {
-      _setError('Google sign-in failed. Please try again.');
-      return null;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
   // Sign out
   Future<void> signOut() async {
     try {
       _setLoading(true);
-      _user = null;
-      notifyListeners();
+      await SupabaseConfig.auth.signOut();
     } catch (e) {
-      _setError('Sign out failed. Please try again.');
+      if (kDebugMode) print('Supabase signOut error: $e');
     } finally {
+      _user = null;
+      _clearResidentPersistence();
       _setLoading(false);
+      notifyListeners();
     }
   }
 
@@ -210,13 +531,16 @@ class AuthService extends ChangeNotifier {
       _setLoading(true);
       _setError(null);
 
-      // Simulate password reset
-      await Future.delayed(const Duration(seconds: 2));
-
-      // Mock successful password reset
+      await SupabaseConfig.auth.resetPasswordForEmail(email);
       notifyListeners();
+    } on AuthException catch (e) {
+      String message = 'Password reset failed. Please try again.';
+      if (e.message.contains('User not found')) {
+        message = 'No user found for that email.';
+      }
+      _setError(message);
     } catch (e) {
-      _setError('Password reset failed. Please try again.');
+      _setError('An unexpected error occurred. Please try again.');
     } finally {
       _setLoading(false);
     }
@@ -231,12 +555,46 @@ class AuthService extends ChangeNotifier {
       _setLoading(true);
       _setError(null);
 
-      if (_user != null) {
-        _user!['displayName'] = displayName;
-        if (photoURL != null) {
-          _user!['photoURL'] = photoURL;
+      final currentUser = SupabaseConfig.auth.currentUser;
+      if (currentUser != null) {
+        final updates = <String, dynamic>{};
+        if (displayName != null) {
+          final nameParts = displayName.split(' ');
+          updates['first_name'] = nameParts[0];
+          updates['last_name'] =
+              nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
         }
-        notifyListeners();
+
+        // Update user metadata
+        await SupabaseConfig.auth.updateUser(
+          UserAttributes(
+            data: updates,
+          ),
+        );
+
+        // Update database profile
+        if (displayName != null || photoURL != null) {
+          final dbUpdates = <String, dynamic>{
+            'updated_at': DateTime.now().toIso8601String(),
+          };
+
+          if (displayName != null) {
+            final nameParts = displayName.split(' ');
+            dbUpdates['first_name'] = nameParts[0];
+            dbUpdates['last_name'] =
+                nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+          }
+          if (photoURL != null) {
+            dbUpdates['photo_url'] = photoURL;
+          }
+
+          await SupabaseConfig.client
+              .from(SupabaseConfig.usersTable)
+              .update(dbUpdates)
+              .eq('id', currentUser.id);
+        }
+
+        await _loadUserProfile(currentUser.id);
       }
     } catch (e) {
       _setError('Profile update failed. Please try again.');
@@ -260,8 +618,59 @@ class AuthService extends ChangeNotifier {
     return getUserRole() == 'resident';
   }
 
+  /// Centralized logic to navigate to the correct dashboard based on role
+  void goHome(BuildContext context) {
+    if (isCollector()) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+          SupabaseConfig.collectorRole == 'collector'
+              ? '/collector'
+              : '/resident',
+          (route) => false);
+    } else {
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil('/resident', (route) => false);
+    }
+  }
+
   // Debug method to see all registered users (for testing)
-  Map<String, Map<String, dynamic>> getAllUsers() {
-    return Map.from(_mockUserDatabase);
+  Future<List<Map<String, dynamic>>> getAllUsers() async {
+    try {
+      final response =
+          await SupabaseConfig.client.from(SupabaseConfig.usersTable).select();
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  String _inferRoleFromEmail(String email) {
+    final lower = email.toLowerCase();
+    if (lower.contains('collector') || lower.contains('demo@ecosched.com')) {
+      return 'collector';
+    }
+    return 'resident';
+  }
+
+  String? _lastDeviceId;
+  Future<String> _getDeviceId() async {
+    try {
+      final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final androidInfo = await deviceInfo.androidInfo;
+        _lastDeviceId = androidInfo.id;
+        return androidInfo.id; // Consistent device ID
+      } else if (Platform.isIOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        final id = iosInfo.identifierForVendor ??
+            DateTime.now().millisecondsSinceEpoch.toString();
+        _lastDeviceId = id;
+        return id;
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error getting device ID: $e');
+    }
+    final fallback = DateTime.now().millisecondsSinceEpoch.toString();
+    _lastDeviceId = fallback;
+    return fallback;
   }
 }

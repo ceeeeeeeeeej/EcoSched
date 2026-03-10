@@ -1,11 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../widgets/gradient_background.dart';
 import '../../../widgets/glassmorphic_container.dart';
 import '../../../widgets/animated_button.dart';
-import '../../../widgets/animated_card.dart';
+import '../../../widgets/premium_app_bar.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/feedback_service.dart';
 
 class FeedbackScreen extends StatefulWidget {
   const FeedbackScreen({super.key});
@@ -22,7 +26,6 @@ class _FeedbackScreenState extends State<FeedbackScreen>
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _messageController = TextEditingController();
-  final _emailController = TextEditingController();
 
   String _selectedCategory = 'General waste concern';
   String _selectedPriority = 'Medium';
@@ -70,21 +73,49 @@ class _FeedbackScreenState extends State<FeedbackScreen>
     _fadeController.dispose();
     _titleController.dispose();
     _messageController.dispose();
-    _emailController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bool isDarkTheme = theme.brightness == Brightness.dark;
+    final Color primaryTextOnCard =
+        isDarkTheme ? theme.colorScheme.onSurface : AppTheme.textDark;
+    final Color secondaryTextOnCard = isDarkTheme
+        ? theme.colorScheme.onSurface.withOpacity(0.8)
+        : AppTheme.textLight;
+    final Color fieldFillColor = isDarkTheme
+        ? theme.colorScheme.surface.withOpacity(0.95)
+        : Colors.white.withOpacity(0.8);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Trash & Waste Feedback'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+      appBar: PremiumAppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'EcoSched',
+              style: AppTheme.titleLarge.copyWith(
+                color: AppTheme.textInverse,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.radiusM),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset(
+                'assets/images/house.gif',
+                fit: BoxFit.cover,
+              ),
+            ),
+          ],
         ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
       ),
       body: GradientBackground(
         child: SafeArea(
@@ -100,39 +131,40 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                     // Header
                     GlassmorphicContainer(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
                               Icon(
-                                Icons.feedback,
-                                color: AppTheme.primaryGreen,
-                                size: 28,
+                                Icons.feedback_rounded,
+                                color: AppTheme.primary,
+                                size: 32,
                               ),
-                              const SizedBox(width: 12),
-                              Text(
-                                'Share Your Waste Feedback',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineSmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.textDark,
-                                    ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(
+                                  'Help Us Improve Local Collection',
+                                  style:
+                                      theme.textTheme.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: primaryTextOnCard,
+                                    letterSpacing: -0.5,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Text(
-                            'Help us improve trash collection and waste management in your area by reporting any issues or suggestions.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                                  color: AppTheme.textLight,
-                                ),
+                            'Report issues or suggest improvements to waste management in your area. Your feedback helps us maintain a cleaner community.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: secondaryTextOnCard,
+                              height: 1.5,
+                            ),
                           ),
                         ],
                       ),
@@ -142,48 +174,43 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                     // Feedback Form
                     GlassmorphicContainer(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Trash / Waste Feedback Details',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.textDark,
-                                ),
+                            'Feedback Details',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: primaryTextOnCard,
+                            ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 24),
 
                           // Category Selection
                           Text(
-                            'Waste issue category',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
-                                ),
+                            'Category',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: primaryTextOnCard,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<String>(
-                            initialValue: _selectedCategory,
+                            isExpanded: true,
+                            value: _selectedCategory,
                             decoration: InputDecoration(
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    AppConstants.borderRadius),
-                              ),
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.8),
+                              fillColor: fieldFillColor,
                             ),
                             items: _categories.map((String category) {
                               return DropdownMenuItem<String>(
                                 value: category,
-                                child: Text(category),
+                                child: Text(
+                                  category,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyLarge,
+                                ),
                               );
                             }).toList(),
                             onChanged: (String? newValue) {
@@ -196,30 +223,28 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                           // Priority Selection
                           Text(
-                            'Priority',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
-                                ),
+                            'Priority Level',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: primaryTextOnCard,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<String>(
-                            initialValue: _selectedPriority,
+                            isExpanded: true,
+                            value: _selectedPriority,
                             decoration: InputDecoration(
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    AppConstants.borderRadius),
-                              ),
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.8),
+                              fillColor: fieldFillColor,
                             ),
                             items: _priorities.map((String priority) {
                               return DropdownMenuItem<String>(
                                 value: priority,
-                                child: Text(priority),
+                                child: Text(
+                                  priority,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyLarge,
+                                ),
                               );
                             }).toList(),
                             onChanged: (String? newValue) {
@@ -232,31 +257,24 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                           // Title Field
                           Text(
-                            'Issue title',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
-                                ),
+                            'Subject',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: primaryTextOnCard,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           TextFormField(
                             controller: _titleController,
                             decoration: InputDecoration(
                               hintText:
-                                  'Short title for your trash / waste concern (e.g. missed pickup)',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    AppConstants.borderRadius),
-                              ),
+                                  'Summarize your feedback in a few words',
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.8),
+                              fillColor: fieldFillColor,
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
-                                return 'Please enter a title';
+                                return 'Please enter a subject.';
                               }
                               return null;
                             },
@@ -265,14 +283,11 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                           // Message Field
                           Text(
-                            'Details about the trash / waste issue',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
-                                ),
+                            'Additional Details',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: primaryTextOnCard,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           TextFormField(
@@ -280,93 +295,21 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                             maxLines: 5,
                             decoration: InputDecoration(
                               hintText:
-                                  'Please describe what happened (location, time, trash type, etc.)...',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    AppConstants.borderRadius),
-                              ),
+                                  'Please provide specific details to help us address your concern.',
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.8),
+                              fillColor: fieldFillColor,
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
-                                return 'Please enter your message';
+                                return 'Please provide additional details.';
                               }
                               if (value.length < 10) {
-                                return 'Please provide more details (at least 10 characters)';
+                                return 'Please provide more specific information.';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
-
-                          // Email Field (if not anonymous)
-                          if (!_isAnonymous) ...[
-                            Text(
-                              'Email (Optional)',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textDark,
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextFormField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                hintText: 'your.email@example.com',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                      AppConstants.borderRadius),
-                                ),
-                                filled: true,
-                                fillColor: Colors.white.withOpacity(0.8),
-                              ),
-                              validator: (value) {
-                                if (value != null && value.isNotEmpty) {
-                                  if (!RegExp(
-                                          r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                                      .hasMatch(value)) {
-                                    return 'Please enter a valid email';
-                                  }
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-
-                          // Anonymous Checkbox
-                          Row(
-                            children: [
-                              Checkbox(
-                                value: _isAnonymous,
-                                onChanged: (bool? value) {
-                                  setState(() {
-                                    _isAnonymous = value ?? false;
-                                    if (_isAnonymous) {
-                                      _emailController.clear();
-                                    }
-                                  });
-                                },
-                                activeColor: AppTheme.primaryGreen,
-                              ),
-                              Expanded(
-                                child: Text(
-                                  'Submit anonymously',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color: AppTheme.textDark,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          const SizedBox(height: 24),
                         ],
                       ),
                     ),
@@ -374,36 +317,15 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                     // Submit Button
                     AnimatedButton(
-                      text: _isSubmitting ? 'Submitting...' : 'Submit Feedback',
+                      text: _isSubmitting
+                          ? 'Submitting Request...'
+                          : 'Submit Feedback',
                       onPressed: _isSubmitting ? null : _submitFeedback,
-                      icon: _isSubmitting ? Icons.hourglass_empty : Icons.send,
-                      backgroundColor: AppTheme.primaryGreen,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Recent Feedback
-                    Text(
-                      'Recent Waste Feedback',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.textDark,
-                          ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    _buildRecentFeedbackCard(
-                      'Missed or late garbage collection',
-                      'Garbage truck skipped our street near Purok 2 last Monday.',
-                      '2 days ago',
-                      'High',
-                    ),
-                    const SizedBox(height: 12),
-
-                    _buildRecentFeedbackCard(
-                      'Trash segregation help',
-                      'The app helped me understand how to separate biodegradable and non-biodegradable waste.',
-                      '1 week ago',
-                      'Medium',
+                      icon: _isSubmitting
+                          ? Icons.hourglass_empty_rounded
+                          : Icons.send_rounded,
+                      isGradient: true,
+                      gradientColors: AppTheme.primaryGradient,
                     ),
                   ],
                 ),
@@ -415,111 +337,93 @@ class _FeedbackScreenState extends State<FeedbackScreen>
     );
   }
 
-  Widget _buildRecentFeedbackCard(
-      String category, String message, String time, String priority) {
-    Color priorityColor = _getPriorityColor(priority);
-
-    return AnimatedCard(
-      padding: const EdgeInsets.all(16),
-      backgroundColor: Colors.white.withOpacity(0.8),
-      borderRadius: AppConstants.borderRadius,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: priorityColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  category,
-                  style: TextStyle(
-                    color: priorityColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                time,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppTheme.textLight,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            message,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.textDark,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getPriorityColor(String priority) {
-    switch (priority) {
-      case 'High':
-        return AppTheme.accentOrange;
-      case 'Medium':
-        return AppTheme.primaryGreen;
-      case 'Low':
-        return AppTheme.lightGreen;
-      default:
-        return AppTheme.textLight;
-    }
-  }
-
   Future<void> _submitFeedback() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
+    final feedbackService = context.read<FeedbackService>();
+    final authService = context.read<AuthService>();
+    final user = authService.user;
+
     setState(() {
       _isSubmitting = true;
     });
 
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      await feedbackService.submitFeedback(
+        category: _selectedCategory,
+        priority: _selectedPriority,
+        title: _titleController.text.trim(),
+        message: _messageController.text.trim(),
+        isAnonymous: _isAnonymous,
+        residentId: user?['uid']?.toString(),
+        residentName: user?['displayName']?.toString() ??
+            user?['fullName']?.toString() ??
+            user?['name']?.toString(),
+        residentEmail: _isAnonymous ? null : user?['email']?.toString(),
+        serviceArea: user?['serviceArea']?.toString(),
+        barangay: user?['barangay']?.toString(),
+        purok: user?['purok']?.toString(),
+      );
 
-    HapticFeedback.lightImpact();
+      HapticFeedback.lightImpact();
 
-    if (mounted) {
-      setState(() {
-        _isSubmitting = false;
-      });
+      if (mounted) {
+        _formKey.currentState?.reset();
+        _titleController.clear();
+        _messageController.clear();
+        setState(() {
+          _selectedCategory = _categories.first;
+          _selectedPriority = 'Medium';
+          _isAnonymous = false;
+        });
 
-      // Show success dialog
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.check_circle, color: AppTheme.primaryGreen),
-              SizedBox(width: 8),
-              Text('Feedback Submitted'),
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.check_circle, color: AppTheme.primaryGreen),
+                SizedBox(width: 8),
+                Text('Feedback sent'),
+              ],
+            ),
+            content: const Text(
+                'Thank you for taking the time to share your feedback. We will review it and use it to improve waste collection in your area.'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: const Text('OK'),
+              ),
             ],
           ),
-          content: const Text(
-              'Thank you for your waste feedback. We will review it and use it to improve trash collection and waste services.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error submitting feedback: $e');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Submission failed: ${e.toString().split(':').last.trim()}'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 }

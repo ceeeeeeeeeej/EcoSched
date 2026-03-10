@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../core/routes/app_router.dart';
 import '../core/services/auth_service.dart';
+import '../core/services/pickup_service.dart';
+import '../core/providers/app_state_provider.dart';
 
 class MainDrawer extends StatelessWidget {
   const MainDrawer({super.key});
@@ -10,9 +12,8 @@ class MainDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthService>(context, listen: false);
-    final String displayName =
-        (auth.user?['displayName'] as String?) ?? 'EcoSched User';
-    final String email = (auth.user?['email'] as String?) ?? 'user@example.com';
+    final String displayName = (auth.user?['displayName'] as String?) ?? 'User';
+    final String email = (auth.user?['email'] as String?) ?? '';
     final bool isCollector = auth.isCollector();
 
     return Drawer(
@@ -152,11 +153,23 @@ class MainDrawer extends StatelessWidget {
               title: const Text('Log out',
                   style: TextStyle(color: Colors.redAccent)),
               onTap: () async {
-                Navigator.of(context).pop();
-                await context.read<AuthService>().signOut();
-                // Clear back stack and go to login page
-                Navigator.of(context)
-                    .pushNamedAndRemoveUntil(AppRoutes.auth, (route) => false);
+                // 1. Capture what we need before any async/pop operations
+                final navigator = Navigator.of(context);
+                final auth = context.read<AuthService>();
+                final pickup = context.read<PickupService>();
+                final appState = context.read<AppStateProvider>();
+
+                // 2. Perform UI pop and state resets
+                navigator.pop();
+                pickup.reset();
+                appState.reset();
+
+                // 3. Perform sign out
+                await auth.signOut();
+
+                // 4. Navigate using the captured navigator
+                navigator.pushNamedAndRemoveUntil(
+                    AppRoutes.roleSelection, (route) => false);
               },
             ),
             const SizedBox(height: 8),

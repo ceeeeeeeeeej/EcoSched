@@ -1,157 +1,183 @@
-# EcoSched - IoT-Enabled Smart Waste Collection App
+# Supabase CLI (v1)
 
-EcoSched is a comprehensive mobile application for smart waste collection scheduling and community notifications, built with Flutter and Supabase.
+[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
+](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
 
-## Features Implemented
+[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
 
-### ✅ Core Infrastructure
-- **Supabase Backend Integration** - Database, authentication, and real-time features
-- **MQTT IoT Integration** - Real-time sensor data from waste bins
-- **Multi-role Authentication** - Email/password and Google Sign-In
-- **State Management** - Provider pattern for app state
-- **Modern UI/UX** - Eco-themed design with Material 3
+This repository contains all the functionality for Supabase CLI.
 
-### ✅ User Management
-- **Role-based Access** - Residents, Collectors, and Administrators
-- **Profile Management** - User profiles with location and contact info
-- **Authentication Flow** - Login, registration, password reset
+- [x] Running Supabase locally
+- [x] Managing database migrations
+- [x] Creating and deploying Supabase Functions
+- [x] Generating types directly from your database schema
+- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
 
-### ✅ Resident Dashboard
-- **Welcome Section** - Personalized greeting and quick stats
-- **Quick Actions** - Easy access to key features
-- **Nearby Bins** - Real-time bin status with fill levels
-- **Collection Schedules** - Upcoming collection times
-- **Community Announcements** - Latest news and updates
+## Getting started
 
-### ✅ Data Models & Repositories
-- **Complete Data Models** - User, Bin, Schedule, Route, Notification, Announcement
-- **Repository Pattern** - Clean data access layer
-- **Real-time Updates** - Supabase streams for live data
+### Install the CLI
 
-## Architecture
+Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
 
-```
-lib/
-├── core/                    # App configuration and constants
-│   ├── config/             # Supabase and MQTT configuration
-│   ├── constants/          # App constants and enums
-│   └── theme/              # App theming
-├── data/                   # Data layer
-│   ├── models/             # Data models
-│   ├── repositories/       # Data access layer
-│   └── services/           # External services (MQTT, etc.)
-├── features/               # Feature modules
-│   ├── auth/               # Authentication
-│   ├── dashboard/          # Role-based dashboards
-│   ├── bins/               # Bin monitoring
-│   ├── schedules/          # Collection scheduling
-│   ├── routes/             # Route optimization
-│   ├── notifications/      # Push notifications
-│   ├── analytics/          # Analytics dashboard
-│   └── community/          # Community features
-└── widgets/                # Reusable components
+```bash
+npm i supabase --save-dev
 ```
 
-## Technology Stack
+To install the beta release channel:
 
-- **Frontend**: Flutter 3.9.2+
-- **Backend**: Supabase (PostgreSQL + Auth + Realtime)
-- **IoT**: MQTT protocol for sensor communication
-- **Maps**: Google Maps integration
-- **Notifications**: Firebase Cloud Messaging
-- **State Management**: Provider
-- **Charts**: FL Chart for analytics
+```bash
+npm i supabase@beta --save-dev
+```
 
-## Getting Started
+When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
 
-### Prerequisites
-- Flutter SDK 3.9.2 or higher
-- Dart SDK
-- Supabase account
-- Firebase project (for notifications)
-- Google Maps API key
+```
+NODE_OPTIONS=--no-experimental-fetch yarn add supabase
+```
 
-### Installation
+> **Note**
+For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd ecosched
-   ```
+<details>
+  <summary><b>macOS</b></summary>
 
-2. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
+  Available via [Homebrew](https://brew.sh). To install:
 
-3. **Configure environment**
-   - Update `lib/core/config/supabase_config.dart` with your Supabase credentials
-   - Add your Google Maps API key
-   - Configure Firebase for your project
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-4. **Set up Supabase database**
-   Create the following tables in your Supabase project:
-   - `users` - User profiles and roles
-   - `bins` - Waste bin information and status
-   - `collection_schedules` - Collection schedules by zone
-   - `collection_routes` - Optimized collection routes
-   - `notifications` - User notifications
-   - `community_announcements` - Community announcements
-   - `collection_reports` - Collection reports and analytics
+  To install the beta release channel:
+  
+  ```sh
+  brew install supabase/tap/supabase-beta
+  brew link --overwrite supabase-beta
+  ```
+  
+  To upgrade:
 
-5. **Run the app**
-   ```bash
-   flutter run
-   ```
+  ```sh
+  brew upgrade supabase
+  ```
+</details>
 
-## Features in Development
+<details>
+  <summary><b>Windows</b></summary>
 
-### 🚧 Collector Dashboard
-- Route optimization and navigation
-- Collection tracking and reporting
-- Real-time bin status updates
+  Available via [Scoop](https://scoop.sh). To install:
 
-### 🚧 Admin Dashboard
-- Analytics and reporting
-- System management
-- User management
-- Schedule management
+  ```powershell
+  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+  scoop install supabase
+  ```
 
-### 🚧 Advanced Features
-- Interactive bin map with clustering
-- Route optimization algorithms
-- Push notifications
-- Community issue reporting
-- Analytics dashboard with charts
+  To upgrade:
 
-## Database Schema
+  ```powershell
+  scoop update supabase
+  ```
+</details>
 
-The app uses the following main entities:
+<details>
+  <summary><b>Linux</b></summary>
 
-- **Users**: Authentication and profile data
-- **Bins**: IoT sensor data and location information
-- **Schedules**: Collection schedules by zone and day
-- **Routes**: Optimized collection paths for collectors
-- **Notifications**: Push and in-app notifications
-- **Announcements**: Community news and updates
-- **Reports**: Collection data and analytics
+  Available via [Homebrew](https://brew.sh) and Linux packages.
 
-## Contributing
+  #### via Homebrew
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+  To install:
 
-## License
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+  To upgrade:
 
-## Support
+  ```sh
+  brew upgrade supabase
+  ```
 
-For support and questions, please open an issue in the repository or contact the development team.
+  #### via Linux packages
 
----
+  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
 
-**EcoSched** - Making waste collection smarter and more efficient through IoT technology.
+  ```sh
+  sudo apk add --allow-untrusted <...>.apk
+  ```
+
+  ```sh
+  sudo dpkg -i <...>.deb
+  ```
+
+  ```sh
+  sudo rpm -i <...>.rpm
+  ```
+
+  ```sh
+  sudo pacman -U <...>.pkg.tar.zst
+  ```
+</details>
+
+<details>
+  <summary><b>Other Platforms</b></summary>
+
+  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
+
+  ```sh
+  go install github.com/supabase/cli@latest
+  ```
+
+  Add a symlink to the binary in `$PATH` for easier access:
+
+  ```sh
+  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
+  ```
+
+  This works on other non-standard Linux distros.
+</details>
+
+<details>
+  <summary><b>Community Maintained Packages</b></summary>
+
+  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
+  To install in your working directory:
+
+  ```bash
+  pkgx install supabase
+  ```
+
+  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
+</details>
+
+### Run the CLI
+
+```bash
+supabase bootstrap
+```
+
+Or using npx:
+
+```bash
+npx supabase bootstrap
+```
+
+The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
+
+## Docs
+
+Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
+
+## Breaking changes
+
+We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
+
+However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
+
+## Developing
+
+To run from source:
+
+```sh
+# Go >= 1.22
+go run . help
+```

@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/responsive.dart';
 import '../../../widgets/animated_button.dart';
-import '../../../widgets/nature_animations.dart';
+import '../../../widgets/enhanced_nature_background.dart';
+import '../../../widgets/glassmorphic_container.dart';
 import '../../../core/transitions/nature_transitions.dart';
 import '../../../core/error/error_handler.dart';
 import '../../../core/routes/app_router.dart';
+import '../../../core/services/location_service.dart';
+import '../../../core/services/barangay_validator.dart';
+import '../../../core/config/supabase_config.dart';
+import 'package:geolocator/geolocator.dart';
 
 class ResidentLocationSelectionScreen extends StatefulWidget {
   final String? selectedBarangay;
@@ -26,9 +32,12 @@ class _ResidentLocationSelectionScreenState
   static const _allowedBarangays = [
     'Victoria, Tago, Surigao del Sur',
     'Dayo-an, Tago, Surigao del Sur',
+    'Mahayag, San Miguel, Surigao del Sur',
+    'Visitors',
   ];
 
   String? _selectedBarangay;
+  bool _isValidating = false;
 
   @override
   void initState() {
@@ -46,7 +55,7 @@ class _ResidentLocationSelectionScreenState
     super.dispose();
   }
 
-  void _navigateToMap() {
+  Future<void> _navigateToMap() async {
     if (_selectedBarangay == null) {
       ErrorHandler.showErrorSnackBar(
         context,
@@ -55,108 +64,145 @@ class _ResidentLocationSelectionScreenState
       return;
     }
 
-    Navigator.of(context).pushNamed(
-      AppRoutes.residentLocationMap,
-      arguments: {
-        'barangay': _selectedBarangay,
-      },
+    setState(() => _isValidating = true);
+
+    try {
+      // 1. Get current location
+      Position position = await LocationService.getCurrentLocation();
+
+      // 2. Validate location
+      bool allowed = BarangayValidator.isInsideBarangay(
+        position,
+        _selectedBarangay!,
+      );
+
+      setState(() => _isValidating = false);
+
+      if (!allowed) {
+        _showAccessDeniedDialog();
+        return;
+      }
+
+      // 3. Save Device Token (No Login Needed)
+
+      // 4. If correct location -> continue
+      Navigator.of(context).pushNamed(
+        AppRoutes.residentLocationMap,
+        arguments: {
+          'barangay': _selectedBarangay,
+        },
+      );
+    } catch (e) {
+      setState(() => _isValidating = false);
+      ErrorHandler.showErrorSnackBar(context,
+          'Location Error: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
+  void _showAccessDeniedDialog() {
+    // Get the display name for the barangay (strip the Tago, Surigao del Sur part for the message)
+    final displayName = _selectedBarangay!.split(',')[0];
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Access Denied"),
+        content: Text("You are not inside Barangay $displayName."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
     );
+  }
+
+  void _goBack() {
+    // Check if we can pop the current screen
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      // If we can't pop, navigate to the role selection screen
+      Navigator.of(context).pushReplacementNamed(AppRoutes.roleSelection);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final responsive = context.responsive;
     final colorScheme = theme.colorScheme;
     final isDarkMode = theme.brightness == Brightness.dark;
-    final List<Color> backgroundGradient = isDarkMode
-        ? const [Color(0xFF0A1526), Color(0xFF04070E)]
-        : const [Color(0xFFF4FFF6), Color(0xFFE6F1FF)];
-    final Color panelColor = isDarkMode
-        ? colorScheme.surface.withOpacity(0.72)
-        : Colors.white.withOpacity(0.92);
-    final TextStyle? mutedStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: (theme.textTheme.bodyMedium?.color ??
-              colorScheme.onBackground.withOpacity(0.9))
-          .withOpacity(0.7),
-    );
 
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: backgroundGradient,
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+      body: EnhancedNatureBackground(
+        showPattern: true,
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(AppTheme.spacing8),
+              padding: EdgeInsets.symmetric(
+                horizontal: responsive.horizontalPadding,
+                vertical: responsive.spacing(12),
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 20),
 
-                  // App Logo and Title with Nature Animation
+                  // Enhanced Location Logo
                   Column(
                     children: [
                       NatureHeroAnimation(
                         tag: 'resident_location_logo',
-                        child: EcoPulseAnimation(
-                          isActive: true,
-                          child: NatureRippleEffect(
-                            rippleColor: AppTheme.accentOrange,
-                            child: Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: AppTheme.primaryGradient,
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                borderRadius: BorderRadius.circular(25),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color:
-                                        AppTheme.accentOrange.withOpacity(0.3),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.location_on,
-                                size: 50,
-                                color: Colors.white,
-                              ),
+                        child: Container(
+                          width: responsive.isMobile ? 110 : 130,
+                          height: responsive.isMobile ? 110 : 130,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: AppTheme.primaryGradient,
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
+                            borderRadius: BorderRadius.circular(30),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.primary.withOpacity(0.35),
+                                blurRadius: 25,
+                                offset: const Offset(0, 12),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            Icons.location_on_rounded,
+                            size: responsive.isMobile ? 55 : 65,
+                            color: Colors.white,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 32),
                       Text(
-                        'Select Your Location',
+                        'Confirm Your Location',
                         style: theme.textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.w700,
-                          color: colorScheme.onBackground,
+                          color: AppTheme.primary,
+                          fontSize:
+                              (theme.textTheme.headlineMedium?.fontSize ?? 32) *
+                                  responsive.fontSizeMultiplier,
                           letterSpacing: -0.5,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
-                      EcoShimmerEffect(
-                        isActive: true,
-                        baseColor: colorScheme.onBackground.withOpacity(0.25),
-                        highlightColor:
-                            colorScheme.onBackground.withOpacity(0.7),
-                        child: Text(
-                          'Choose where you live',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: colorScheme.onBackground.withOpacity(0.75),
-                            fontWeight: FontWeight.w500,
-                          ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'EcoSched uses your location to provide personalized collection schedules and real-time alerts.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: AppTheme.textLight,
+                          fontSize:
+                              (theme.textTheme.bodyLarge?.fontSize ?? 16) *
+                                  responsive.fontSizeMultiplier,
+                          height: 1.5,
                         ),
                       ),
                     ],
@@ -164,129 +210,110 @@ class _ResidentLocationSelectionScreenState
 
                   const SizedBox(height: 40),
 
-                  // Location Selection Form Container with Nature Animation
+                  // Location Selection Card
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: NatureRippleEffect(
-                      rippleColor: AppTheme.accentOrange.withOpacity(0.3),
-                      child: Container(
-                        width: double.infinity,
-                        padding: EdgeInsets.all(AppTheme.spacing8),
-                        decoration: BoxDecoration(
-                          color: panelColor,
-                          borderRadius: BorderRadius.circular(AppTheme.radiusL),
-                          border: Border.all(
-                            color: colorScheme.primary.withOpacity(0.08),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black
-                                  .withOpacity(isDarkMode ? 0.4 : 0.08),
-                              blurRadius: 24,
-                              offset: const Offset(0, 12),
-                            ),
-                          ],
-                        ),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _buildStatusChip(
-                                    icon: Icons.flag_circle,
-                                    label: 'Step 1 of 2 · Select barangay',
-                                    color: colorScheme.primary,
-                                  ),
-                                  _buildStatusChip(
-                                    icon: Icons.map,
-                                    label: 'Coverage: Victoria & Dayo-an',
-                                    color: AppTheme.accentOrange,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 24),
-                              Text(
-                                'Barangay',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: colorScheme.onSurface,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              // Victoria Option
-                              _buildBarangayOption(
-                                _allowedBarangays[0],
-                                Icons.location_city,
-                                AppTheme.primaryGreen,
-                              ),
-                              const SizedBox(height: 12),
-                              // Dayo-an Option
-                              _buildBarangayOption(
-                                _allowedBarangays[1],
-                                Icons.location_city,
-                                AppTheme.accentOrange,
-                              ),
-                              const SizedBox(height: 24),
-                              if (_selectedBarangay != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Selected barangay: $_selectedBarangay',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: colorScheme.onSurface,
-                                  ),
+                    constraints: BoxConstraints(
+                      maxWidth: responsive.getContainerWidth(
+                        mobilePercent: 1.0,
+                        tabletPercent: 0.8,
+                        desktopPercent: 0.5,
+                        maxWidth: 460,
+                      ),
+                    ),
+                    child: GlassmorphicContainer(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(responsive.spacing(24)),
+                      borderRadius: AppTheme.radiusXL,
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                _buildStatusChip(
+                                  icon: Icons.map_rounded,
+                                  label:
+                                      'Service Area: ${_selectedBarangay?.split(',').length == 3 ? _selectedBarangay!.split(',')[1].trim() : "Tago"}',
+                                  color: AppTheme.primary,
                                 ),
                               ],
-                              // Continue Button with Nature Animation
-                              if (_selectedBarangay != null)
-                                NatureRippleEffect(
-                                  rippleColor: AppTheme.accentOrange,
-                                  child: AnimatedButton(
-                                    text: 'Continue',
-                                    onPressed: _navigateToMap,
-                                    isLoading: false,
-                                    width: double.infinity,
-                                    icon: Icons.arrow_forward,
-                                    backgroundColor: AppTheme.accentOrange,
-                                    isGradient: true,
-                                    gradientColors: AppTheme.primaryGradient,
-                                  ),
-                                ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Select Protected Barangay',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            // Victoria Option
+                            _buildBarangayOption(
+                              _allowedBarangays[0],
+                              Icons.home_work_rounded,
+                              AppTheme.primary,
+                            ),
+                            const SizedBox(height: 12),
+                            // Dayo-an Option
+                            _buildBarangayOption(
+                              _allowedBarangays[1],
+                              Icons.home_work_rounded,
+                              AppTheme.secondary,
+                            ),
+                            const SizedBox(height: 12),
+                            // Mahayag Option
+                            _buildBarangayOption(
+                              _allowedBarangays[2],
+                              Icons.home_work_rounded,
+                              AppTheme.accentOrange,
+                            ),
+                            const SizedBox(height: 12),
+                            // Visitors Option
+                            _buildBarangayOption(
+                              _allowedBarangays[3],
+                              Icons.people_alt_rounded,
+                              AppTheme.primaryGreen,
+                            ),
+
+                            if (_selectedBarangay != null) ...[
+                              const SizedBox(height: 32),
+                              AnimatedButton(
+                                text: _isValidating
+                                    ? 'Validating Location...'
+                                    : 'Confirm & View Map',
+                                onPressed:
+                                    _isValidating ? null : _navigateToMap,
+                                width: double.infinity,
+                                icon: _isValidating
+                                    ? Icons.hourglass_empty_rounded
+                                    : Icons.map_rounded,
+                                isGradient: true,
+                                gradientColors: AppTheme.primaryGradient,
+                              ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
                     ),
                   ),
 
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 32),
 
-                  // Back to Role Selection
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Want to register as a collector? ',
-                        style: mutedStyle,
+                  // Professional Back Link
+                  TextButton.icon(
+                    onPressed: _goBack,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: Text(
+                      'Back to identity selection',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textLight,
                       ),
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: NatureRippleEffect(
-                          rippleColor: AppTheme.accentOrange,
-                          child: Text(
-                            'Go Back',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppTheme.accentOrange,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.textLight,
+                    ),
                   ),
 
                   const SizedBox(height: 20),
@@ -309,7 +336,7 @@ class _ResidentLocationSelectionScreenState
         : colorScheme.primary.withOpacity(0.1);
     final Color selectedBorder = color;
     final Color unselectedBg = isDarkMode
-        ? colorScheme.surfaceVariant.withOpacity(0.25)
+        ? colorScheme.surfaceContainerHighest.withOpacity(0.25)
         : Colors.white.withOpacity(0.65);
 
     return GestureDetector(

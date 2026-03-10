@@ -58,14 +58,14 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
   late AnimationController _successController;
   late AnimationController _floatingLabelController;
   late AnimationController _natureEffectController;
-  
+
   late Animation<double> _scaleAnimation;
   late Animation<double> _glowAnimation;
   late Animation<Offset> _shakeAnimation;
   late Animation<double> _successAnimation;
   late Animation<double> _floatingLabelAnimation;
   late Animation<double> _natureEffectAnimation;
-  
+
   final FocusNode _focusNode = FocusNode();
   bool _hasError = false;
   bool _isValid = false;
@@ -84,12 +84,12 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
+
     _shakeController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-    
+
     _successController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -224,6 +224,19 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
   Widget build(BuildContext context) {
     final primaryColor = widget.primaryColor ?? AppTheme.primaryGreen;
     final accentColor = widget.accentColor ?? AppTheme.accentOrange;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final bool isDark = colorScheme.brightness == Brightness.dark;
+    final Color textColor = colorScheme.onSurface;
+    final Color hintColor = textColor.withOpacity(0.6);
+    final Color idleFillColor =
+        isDark ? AppTheme.neutral800 : AppTheme.neutral50;
+    final Color idleIconBackground =
+        isDark ? AppTheme.neutral700 : AppTheme.neutral100;
+    final Color idleIconColor = isDark ? Colors.white70 : AppTheme.textMuted;
+    final Color idleBorderColor = _hasError
+        ? AppTheme.errorRed.withOpacity(0.3)
+        : (isDark ? Colors.white24 : AppTheme.neutral200);
 
     return AnimatedBuilder(
       animation: Listenable.merge([
@@ -244,9 +257,10 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                 // Nature effect background
                 if (widget.showNatureEffects)
                   Positioned.fill(
-                    child: _buildNatureEffectBackground(primaryColor, accentColor),
+                    child:
+                        _buildNatureEffectBackground(primaryColor, accentColor),
                   ),
-                
+
                 // Main text field container
                 Container(
                   decoration: BoxDecoration(
@@ -264,12 +278,14 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                     boxShadow: _isFocused
                         ? [
                             BoxShadow(
-                              color: primaryColor.withOpacity(0.2 * _glowAnimation.value),
+                              color: primaryColor
+                                  .withOpacity(0.2 * _glowAnimation.value),
                               blurRadius: 12,
                               spreadRadius: 2,
                             ),
                             BoxShadow(
-                              color: primaryColor.withOpacity(0.1 * _glowAnimation.value),
+                              color: primaryColor
+                                  .withOpacity(0.1 * _glowAnimation.value),
                               blurRadius: 24,
                               spreadRadius: 4,
                             ),
@@ -287,7 +303,8 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                     child: Stack(
                       children: [
                         // Floating label
-                        if (widget.showFloatingLabel && widget.labelText != null)
+                        if (widget.showFloatingLabel &&
+                            widget.labelText != null)
                           Positioned(
                             top: 8,
                             left: 16,
@@ -295,13 +312,16 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                               animation: _floatingLabelAnimation,
                               builder: (context, child) {
                                 return Transform.translate(
-                                  offset: Offset(0, -8 * (1 - _floatingLabelAnimation.value)),
+                                  offset: Offset(0,
+                                      -8 * (1 - _floatingLabelAnimation.value)),
                                   child: Opacity(
                                     opacity: _floatingLabelAnimation.value,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Theme.of(context).scaffoldBackgroundColor,
+                                        color: Theme.of(context)
+                                            .scaffoldBackgroundColor,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
@@ -322,7 +342,7 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                               },
                             ),
                           ),
-                        
+
                         // Text field
                         TextFormField(
                           controller: widget.controller,
@@ -335,19 +355,23 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                             widget.onChanged?.call(value);
                           },
                           textInputAction: widget.textInputAction,
-                          onFieldSubmitted: widget.onSubmitted != null ? (_) => widget.onSubmitted!() : null,
+                          onFieldSubmitted: widget.onSubmitted != null
+                              ? (_) => widget.onSubmitted!()
+                              : null,
                           enabled: widget.enabled,
                           maxLines: widget.maxLines,
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: AppTheme.textDark,
+                            color: textColor,
                           ),
                           decoration: InputDecoration(
-                            labelText: widget.showFloatingLabel ? null : widget.labelText,
+                            labelText: widget.showFloatingLabel
+                                ? null
+                                : widget.labelText,
                             hintText: widget.hintText,
                             hintStyle: TextStyle(
-                              color: AppTheme.textMuted.withOpacity(0.7),
+                              color: hintColor,
                               fontSize: 16,
                             ),
                             prefixIcon: widget.prefixIcon != null
@@ -357,57 +381,63 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
                                     decoration: BoxDecoration(
                                       color: _isFocused
                                           ? primaryColor.withOpacity(0.1)
-                                          : AppTheme.neutral100,
+                                          : idleIconBackground,
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Icon(
                                       widget.prefixIcon,
                                       color: _isFocused
                                           ? primaryColor
-                                          : AppTheme.textMuted,
+                                          : idleIconColor,
                                       size: 20,
                                     ),
                                   )
                                 : null,
-                            suffixIcon: _buildSuffixIcon(primaryColor),
+                            suffixIcon: _buildSuffixIcon(
+                              primaryColor,
+                              idleIconBackground,
+                              idleIconColor,
+                            ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusL),
                               borderSide: BorderSide.none,
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusL),
                               borderSide: BorderSide(
-                                color: _hasError
-                                    ? AppTheme.errorRed.withOpacity(0.3)
-                                    : AppTheme.neutral200,
+                                color: idleBorderColor,
                                 width: 1.5,
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusL),
                               borderSide: BorderSide(
                                 color: primaryColor,
                                 width: 2,
                               ),
                             ),
                             errorBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusL),
                               borderSide: BorderSide(
                                 color: AppTheme.errorRed,
                                 width: 1.5,
                               ),
                             ),
                             focusedErrorBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusL),
                               borderSide: BorderSide(
                                 color: AppTheme.errorRed,
                                 width: 2,
                               ),
                             ),
                             filled: true,
-                            fillColor: _isFocused
-                                ? Colors.transparent
-                                : AppTheme.neutral50,
+                            fillColor:
+                                _isFocused ? Colors.transparent : idleFillColor,
                             contentPadding: EdgeInsets.only(
                               left: widget.prefixIcon != null ? 0 : 16,
                               right: widget.suffixIcon != null ? 0 : 16,
@@ -439,7 +469,8 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
     );
   }
 
-  Widget? _buildSuffixIcon(Color primaryColor) {
+  Widget? _buildSuffixIcon(
+      Color primaryColor, Color idleIconBackground, Color idleIconColor) {
     if (widget.suffixIcon != null) {
       return Container(
         margin: const EdgeInsets.all(12),
@@ -454,9 +485,7 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
             ),
             child: Icon(
               widget.suffixIcon,
-              color: _isFocused
-                  ? primaryColor
-                  : AppTheme.textMuted,
+              color: _isFocused ? primaryColor : AppTheme.textMuted,
               size: 20,
             ),
           ),
@@ -464,7 +493,7 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
         ),
       );
     }
-    
+
     if (_isValid) {
       return Container(
         margin: const EdgeInsets.all(12),
@@ -490,7 +519,7 @@ class _AnimatedTextFieldState extends State<AnimatedTextField>
         ),
       );
     }
-    
+
     return null;
   }
 }
@@ -519,7 +548,7 @@ class _AnimatedCheckboxState extends State<AnimatedCheckbox>
     with TickerProviderStateMixin {
   late AnimationController _scaleController;
   late AnimationController _checkController;
-  
+
   late Animation<double> _scaleAnimation;
   late Animation<double> _checkAnimation;
 
@@ -534,7 +563,7 @@ class _AnimatedCheckboxState extends State<AnimatedCheckbox>
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
-    
+
     _checkController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -587,7 +616,8 @@ class _AnimatedCheckboxState extends State<AnimatedCheckbox>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: widget.enabled ? () => widget.onChanged?.call(!widget.value) : null,
+      onTap:
+          widget.enabled ? () => widget.onChanged?.call(!widget.value) : null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -664,7 +694,7 @@ class _AnimatedRadioState<T> extends State<AnimatedRadio<T>>
     with TickerProviderStateMixin {
   late AnimationController _scaleController;
   late AnimationController _pulseController;
-  
+
   late Animation<double> _scaleAnimation;
   late Animation<double> _pulseAnimation;
 
@@ -679,7 +709,7 @@ class _AnimatedRadioState<T> extends State<AnimatedRadio<T>>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
+
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 400),
       vsync: this,
@@ -705,7 +735,8 @@ class _AnimatedRadioState<T> extends State<AnimatedRadio<T>>
   @override
   void didUpdateWidget(AnimatedRadio<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.value == widget.groupValue && oldWidget.value != widget.groupValue) {
+    if (widget.value == widget.groupValue &&
+        oldWidget.value != widget.groupValue) {
       _scaleController.forward().then((_) {
         _scaleController.reverse();
       });
@@ -726,7 +757,7 @@ class _AnimatedRadioState<T> extends State<AnimatedRadio<T>>
   @override
   Widget build(BuildContext context) {
     final isSelected = widget.value == widget.groupValue;
-    
+
     return GestureDetector(
       onTap: widget.enabled ? () => widget.onChanged?.call(widget.value) : null,
       child: Row(
@@ -755,7 +786,8 @@ class _AnimatedRadioState<T> extends State<AnimatedRadio<T>>
                             width: 12,
                             height: 12,
                             decoration: BoxDecoration(
-                              color: widget.activeColor ?? AppTheme.primaryGreen,
+                              color:
+                                  widget.activeColor ?? AppTheme.primaryGreen,
                               shape: BoxShape.circle,
                             ),
                           ),
@@ -798,8 +830,7 @@ class NatureTextFieldPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (!isFocused) return;
 
-    final paint = Paint()
-      ..style = PaintingStyle.fill;
+    final paint = Paint()..style = PaintingStyle.fill;
 
     // Draw floating particles
     for (int i = 0; i < 3; i++) {
@@ -809,8 +840,8 @@ class NatureTextFieldPainter extends CustomPainter {
       final radius = 2.0 + 1.0 * math.sin(progress * 4 * math.pi);
       final opacity = 0.3 * (1 - progress);
 
-      paint.color = (i % 2 == 0 ? primaryColor : accentColor)
-          .withOpacity(opacity);
+      paint.color =
+          (i % 2 == 0 ? primaryColor : accentColor).withOpacity(opacity);
       canvas.drawCircle(Offset(x, y), radius, paint);
     }
 
@@ -822,7 +853,7 @@ class NatureTextFieldPainter extends CustomPainter {
 
     final path = Path();
     for (double x = 0; x < size.width; x += 2) {
-      final y = size.height * 0.8 + 
+      final y = size.height * 0.8 +
           5 * math.sin((x * 0.02) + (animation.value * 2 * math.pi));
       if (x == 0) {
         path.moveTo(x, y);

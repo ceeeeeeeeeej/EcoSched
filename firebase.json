@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "source": "functions"
-  }
-}
-
-
+{"functions":{"source":"functions"},"flutter":{"platforms":{"android":{"default":{"projectId":"ecosched-app","appId":"1:498311087081:android:7ee58cbf187262835e0178","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"ecosched-app","configurations":{"android":"1:498311087081:android:7ee58cbf187262835e0178"}}}}}}

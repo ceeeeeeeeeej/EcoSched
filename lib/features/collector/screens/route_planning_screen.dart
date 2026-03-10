@@ -18,6 +18,22 @@ class RoutePlanningScreen extends StatefulWidget {
 class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
   bool _isRouteStarted = false;
   int _currentStop = 0;
+  final Map<String, List<Map<String, String>>> _routeScheduleNotices = const {
+    'Dayo-Ay': [
+      {
+        'time': '08:30 AM',
+        'message':
+            'Admin scheduled priority pickup for biodegradable bins. Ensure bins are emptied before 09:15 AM.'
+      },
+    ],
+    'Victoria': [
+      {
+        'time': '10:00 AM',
+        'message':
+            'Additional recyclable collection requested. Coordinate with barangay staff before arrival.'
+      },
+    ],
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +65,7 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Downtown District',
+                            'Dayo-An',
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
@@ -116,41 +132,31 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Stops List
-                Expanded(
-                  child: GlassmorphicContainer(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Collection Stops',
+                if (_routeScheduleNotices.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Admin Schedule Notices',
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: AppTheme.textDark,
                                   ),
                         ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: stops.length,
-                            itemBuilder: (context, index) {
-                              final stop = stops[index];
-                              return _buildStopCard(
-                                stop,
-                                index,
-                                totalStops,
-                              );
-                            },
-                          ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._routeScheduleNotices.entries.map(
+                        (entry) => _RouteScheduleSection(
+                          routeName: entry.key,
+                          notices: entry.value,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 24),
 
                 // Action Button
                 AnimatedButton(
@@ -359,6 +365,157 @@ class _RoutePlanningScreenState extends State<RoutePlanningScreen> {
               Navigator.pop(context);
             },
             child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouteScheduleSection extends StatelessWidget {
+  final String routeName;
+  final List<Map<String, String>> notices;
+
+  const _RouteScheduleSection({
+    required this.routeName,
+    required this.notices,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppTheme.primaryGreen.withOpacity(0.25),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryGreen.withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryGreen.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.route,
+                      size: 16,
+                      color: AppTheme.primaryGreen,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      routeName,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primaryGreen,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...notices.map(
+            (notice) => _AdminNoticeCard(
+              time: notice['time'] ?? '--:--',
+              message: notice['message'] ?? '',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminNoticeCard extends StatelessWidget {
+  final String time;
+  final String message;
+
+  const _AdminNoticeCard({
+    required this.time,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppTheme.primaryGreen.withOpacity(0.2),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryGreen.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(
+              Icons.notifications_active,
+              color: AppTheme.primaryGreen,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.access_time,
+                      size: 16,
+                      color: AppTheme.textLight,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      time,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppTheme.textLight,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.textDark,
+                        height: 1.4,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

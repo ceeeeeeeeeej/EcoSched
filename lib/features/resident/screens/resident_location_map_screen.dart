@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/routes/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/pickup_service.dart';
+import '../../../core/services/notification_service.dart';
 
 class ResidentLocationMapScreen extends StatefulWidget {
   final String? barangay;
@@ -25,7 +29,7 @@ class ResidentLocationMapScreen extends StatefulWidget {
 }
 
 class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
-  static const LatLng _fallbackCenter = LatLng(9.0721, 125.6083);
+  static const LatLng _fallbackCenter = LatLng(9.0336, 126.2094);
   static const Set<String> _supportedBarangays = {
     'victoria',
     'victoria, tago, surigao del sur',
@@ -33,20 +37,27 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     'dayo-an, tago, surigao del sur',
     'dayo-ay',
     'dayo-ay, tago, surigao del sur',
+    'visitors',
   };
   static final List<_LatLngBounds> _serviceAreaBounds = [
     const _LatLngBounds(
-      minLatitude: 9.0500,
-      maxLatitude: 9.0950,
-      minLongitude: 125.5850,
-      maxLongitude: 125.6400,
+      minLatitude: 9.0000,
+      maxLatitude: 9.0700,
+      minLongitude: 126.1800,
+      maxLongitude: 126.2400,
     ), // Victoria core
     const _LatLngBounds(
-      minLatitude: 9.0200,
-      maxLatitude: 9.0800,
-      minLongitude: 125.5600,
-      maxLongitude: 125.6200,
+      minLatitude: 8.9900,
+      maxLatitude: 9.0500,
+      minLongitude: 126.1500,
+      maxLongitude: 126.2100,
     ), // Dayo-ay / Dayo-an stretch
+    const _LatLngBounds(
+      minLatitude: 9.0800,
+      maxLatitude: 9.1200,
+      minLongitude: 126.1800,
+      maxLongitude: 126.2300,
+    ), // Mahayag core
   ];
   static final List<_LatLngBounds> _developerSandboxBounds = [
     const _LatLngBounds(
@@ -65,6 +76,8 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
   bool _isMapReady = false;
   double _mapZoom = 17;
   bool _developerBypassActive = false;
+  bool _hasCoverageError = false;
+  bool _hasBarangayMismatchError = false;
 
   @override
   void initState() {
@@ -73,11 +86,14 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
       _fetchCurrentLocation();
     } else {
       _locationError =
-          'EcoSched is currently limited to Victoria and Dayo-an in Tago, Surigao del Sur.';
+          'EcoSched is currently limited to Victoria, Dayo-an, and Visitors in Tago, Surigao del Sur.';
     }
   }
 
   Widget _buildUnsupportedBarangayCard(String barangayLabel) {
+    final theme = Theme.of(context);
+    final bool isDarkTheme = theme.brightness == Brightness.dark;
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -94,9 +110,9 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                 Expanded(
                   child: Text(
                     'EcoSched coverage is limited',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
@@ -105,23 +121,30 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
             Text(
               '$barangayLabel is currently outside EcoSched’s supported areas. '
               'We are rolling out soon in more barangays within Tago, Surigao del Sur.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppTheme.textLight),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface.withOpacity(0.8)
+                    : AppTheme.textLight,
+              ),
             ),
             const SizedBox(height: 16),
             Text(
               'Supported barangays:',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textDark,
-                  ),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface
+                    : AppTheme.textDark,
+              ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              '• Victoria, Tago, Surigao del Sur\n• Dayo-an, Tago, Surigao del Sur',
-              style: TextStyle(color: AppTheme.textLight),
+            Text(
+              '• Victoria, Tago, Surigao del Sur\n• Dayo-an, Tago, Surigao del Sur\n• Mahayag, Tago, Surigao del Sur',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface.withOpacity(0.8)
+                    : AppTheme.textLight,
+              ),
             ),
           ],
         ),
@@ -141,11 +164,49 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
 
   bool get _isDeveloperOverrideEnabled => kDebugMode;
 
+  bool get _hasCriticalLocationError =>
+      _hasCoverageError || _hasBarangayMismatchError;
+
   bool get _canContinue =>
-      _isBarangaySupported && (_currentLatLng != null || _hasManualDirections);
+      _isBarangaySupported &&
+      !_hasCriticalLocationError &&
+      (_currentLatLng != null || _hasManualDirections);
+
+  String _mapBarangayToServiceArea(String? barangay) {
+    final value = (barangay ?? '').trim().toLowerCase();
+    if (value.contains('victoria')) {
+      return 'victoria';
+    }
+    if (value.contains('dayo-an') || value.contains('dayo-ay')) {
+      return 'dayo-an';
+    }
+    if (value.contains('mahayag')) {
+      return 'mahayag';
+    }
+    return 'victoria';
+  }
 
   void _goToDashboard() {
     if (!_canContinue) return;
+    final auth = context.read<AuthService>();
+    final pickupService = context.read<PickupService>();
+
+    final barangay = widget.barangay ?? '';
+    final purok = widget.purok ?? 'Purok 1';
+    final currentLocation = widget.currentLocation;
+
+    auth.setResidentLocation(
+      barangay: barangay,
+      purok: purok,
+      currentLocation: currentLocation,
+    );
+
+    final serviceArea = _mapBarangayToServiceArea(barangay);
+    pickupService.loadSchedulesForServiceArea(serviceArea);
+
+    NotificationService.subscribeToServiceAreaTopic(serviceArea,
+        userId: auth.residentId);
+
     Navigator.of(context).pushNamedAndRemoveUntil(
       AppRoutes.residentDashboard,
       (route) => false,
@@ -158,6 +219,8 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
       _isFetchingLocation = true;
       _locationError = null;
       _developerBypassActive = false;
+      _hasCoverageError = false;
+      _hasBarangayMismatchError = false;
     });
 
     try {
@@ -206,6 +269,8 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
             _isFetchingLocation = false;
             _developerBypassActive = true;
             _locationError = null;
+            _hasCoverageError = false;
+            _hasBarangayMismatchError = false;
           });
           _animateToCurrentLocation();
           return;
@@ -216,7 +281,22 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
           _isFetchingLocation = false;
           _developerBypassActive = false;
           _locationError =
-              'Your detected location is currently outside EcoSched’s supported coverage (Victoria & Dayo-ay, Tago).';
+              'Your detected location is currently outside EcoSched’s supported coverage (Victoria, Dayo-ay, & Mahayag, Tago).';
+          _hasCoverageError = true;
+          _hasBarangayMismatchError = false;
+        });
+        return;
+      }
+
+      if (!_isWithinSelectedBarangay(detectedLatLng)) {
+        setState(() {
+          _currentLatLng = null;
+          _isFetchingLocation = false;
+          _developerBypassActive = false;
+          _locationError =
+              'Your detected location does not match your selected barangay. Please double-check your selection.';
+          _hasCoverageError = false;
+          _hasBarangayMismatchError = true;
         });
         return;
       }
@@ -225,6 +305,9 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
         _currentLatLng = detectedLatLng;
         _isFetchingLocation = false;
         _developerBypassActive = false;
+        _locationError = null;
+        _hasCoverageError = false;
+        _hasBarangayMismatchError = false;
       });
 
       _animateToCurrentLocation();
@@ -282,6 +365,36 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
       }
     }
     return false;
+  }
+
+  bool _isWithinSelectedBarangay(LatLng point) {
+    final barangay = (widget.barangay ?? '').trim().toLowerCase();
+
+    if (barangay.contains('victoria')) {
+      if (_serviceAreaBounds.isNotEmpty) {
+        final victoriaBounds = _serviceAreaBounds[0];
+        return victoriaBounds.contains(point);
+      }
+      return false;
+    }
+
+    if (barangay.contains('dayo-an') || barangay.contains('dayo-ay')) {
+      if (_serviceAreaBounds.length > 1) {
+        final dayoanBounds = _serviceAreaBounds[1];
+        return dayoanBounds.contains(point);
+      }
+      return false;
+    }
+
+    if (barangay.contains('mahayag')) {
+      if (_serviceAreaBounds.length > 2) {
+        final mahayagBounds = _serviceAreaBounds[2];
+        return mahayagBounds.contains(point);
+      }
+      return false;
+    }
+
+    return _isWithinServiceArea(point);
   }
 
   bool _isWithinDeveloperSandbox(LatLng point) {
@@ -469,7 +582,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Make sure the pin sits inside Victoria or Dayo-an.',
+                        'Make sure the pin sits inside Victoria, Dayo-an, or Mahayag.',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.textTheme.bodySmall?.color
                               ?.withOpacity(0.7),
@@ -746,7 +859,8 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  color: theme.colorScheme.surfaceVariant.withOpacity(0.4),
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withOpacity(0.4),
                   border: Border.all(
                     color: theme.colorScheme.outline.withOpacity(0.2),
                   ),
@@ -823,6 +937,9 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
   }
 
   Widget _buildLocationDetails(String location) {
+    final theme = Theme.of(context);
+    final bool isDarkTheme = theme.brightness == Brightness.dark;
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -833,17 +950,18 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
           children: [
             Text(
               'Additional Directions',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               location,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppTheme.textDark),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface
+                    : AppTheme.textDark,
+              ),
             ),
           ],
         ),
@@ -936,8 +1054,8 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                       )
                     : LinearGradient(
                         colors: [
-                          colorScheme.surfaceVariant,
-                          colorScheme.surfaceVariant
+                          colorScheme.surfaceContainerHighest,
+                          colorScheme.surfaceContainerHighest
                         ],
                       ),
                 borderRadius: BorderRadius.circular(16),

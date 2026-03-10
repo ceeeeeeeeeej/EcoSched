@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/constants/app_constants.dart';
+
+import '../../../core/utils/responsive.dart';
 
 class CollectionStatsCard extends StatelessWidget {
   final String title;
@@ -18,52 +19,61 @@ class CollectionStatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final responsive = context.responsive;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(responsive.spacing(16)),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.8),
-        borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+        color: isDark
+            ? AppTheme.backgroundSecondary
+            : Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(AppTheme.radiusL),
         border: Border.all(
-          color: color.withOpacity(0.3),
-          width: 2,
+          color: color.withOpacity(isDark ? 0.3 : 0.15),
+          width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 50,
-            height: 50,
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(25),
+              color: color.withOpacity(0.12),
+              shape: BoxShape.circle,
             ),
             child: Icon(
               icon,
               color: color,
-              size: 24,
+              size: responsive.iconSize(22),
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: responsive.spacing(12)),
           Text(
             value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
               color: AppTheme.textDark,
+              fontSize: (theme.textTheme.titleLarge?.fontSize ?? 20) *
+                  responsive.fontSizeMultiplier,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             title,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: AppTheme.textLight,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
             ),
             textAlign: TextAlign.center,
           ),

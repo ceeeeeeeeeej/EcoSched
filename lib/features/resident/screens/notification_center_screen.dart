@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/reminder_service.dart';
 import '../../../widgets/gradient_background.dart';
 import '../../../widgets/glassmorphic_container.dart';
 import '../widgets/notification_card.dart';
@@ -14,72 +16,21 @@ class NotificationCenterScreen extends StatefulWidget {
 }
 
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
-  final List<Map<String, dynamic>> _notifications = [
-    {
-      'title': 'Collection Completed',
-      'message': 'Your waste was collected successfully at 9:15 AM',
-      'time': '2 hours ago',
-      'type': 'success',
-      'read': false,
-    },
-    {
-      'title': 'New Compost Pit Available',
-      'message':
-          'Victoria Barangay Compost Site is now open with extended hours',
-      'time': '4 hours ago',
-      'type': 'info',
-      'read': false,
-    },
-    {
-      'title': 'Feedback Response',
-      'message':
-          'Thank you for your feedback! We have implemented your suggestion about collection timing.',
-      'time': '1 day ago',
-      'type': 'success',
-      'read': true,
-    },
-    {
-      'title': 'Schedule Reminder',
-      'message': 'Your next pickup is tomorrow at 9:00 AM',
-      'time': '1 day ago',
-      'type': 'info',
-      'read': true,
-    },
-    {
-      'title': 'Compost Workshop',
-      'message':
-          'Free composting workshop at Tago Municipal Compost Center this Saturday',
-      'time': '2 days ago',
-      'type': 'tip',
-      'read': true,
-    },
-    {
-      'title': 'Route Optimization',
-      'message':
-          'Your collection route has been optimized. New pickup time: 8:30 AM',
-      'time': '2 days ago',
-      'type': 'info',
-      'read': true,
-    },
-    {
-      'title': 'Recycling Tips',
-      'message': 'Remember to separate your recyclables for better efficiency',
-      'time': '3 days ago',
-      'type': 'tip',
-      'read': true,
-    },
-    {
-      'title': 'Collection Delayed',
-      'message': 'Your pickup has been delayed by 30 minutes due to traffic',
-      'time': '1 week ago',
-      'type': 'warning',
-      'read': true,
-    },
-  ];
+  String _relativeTime(DateTime date) {
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(date.toUtc());
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes} minutes ago';
+    if (diff.inDays < 1) return '${diff.inHours} hours ago';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return '${date.month}/${date.day}/${date.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where((n) => !n['read']).length;
+    final reminderService = context.watch<ReminderService>();
+    final reminders = reminderService.reminders;
+    final unreadCount = reminderService.unreadCount;
 
     return Scaffold(
       appBar: AppBar(
@@ -102,14 +53,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
             const Text('Notifications'),
           ],
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
         actions: [
           if (unreadCount > 0)
             TextButton(
-              onPressed: _markAllAsRead,
+              onPressed: reminderService.markAllAsRead,
               child: const Text('Mark all as read'),
             ),
         ],
@@ -141,16 +88,30 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                         const SizedBox(height: 16),
                         Expanded(
                           child: ListView.builder(
-                            itemCount: _notifications.length,
+                            itemCount: reminders.length,
                             itemBuilder: (context, index) {
-                              final notification = _notifications[index];
+                              final reminder = reminders[index];
+                              final dynamic id = reminder['id'] ?? index;
+                              final dynamic rawCreatedAt =
+                                  reminder['createdAt'];
+                              final DateTime createdAt =
+                                  rawCreatedAt is DateTime
+                                      ? rawCreatedAt
+                                      : DateTime.now();
                               return NotificationCard(
-                                title: notification['title'],
-                                message: notification['message'],
-                                time: notification['time'],
-                                type: notification['type'],
-                                isRead: notification['read'],
-                                onTap: () => _markAsRead(index),
+                                title: (reminder['title']?.toString() ??
+                                    'Notification'),
+                                message: (reminder['message']?.toString() ??
+                                        'No message')
+                                    .toString(),
+                                time: _relativeTime(createdAt),
+                                type: (reminder['type']?.toString() ?? 'info'),
+                                isRead: reminder['read'] == true,
+                                onTap: () {
+                                  if (id != null) {
+                                    reminderService.markAsRead(id.toString());
+                                  }
+                                },
                               );
                             },
                           ),
@@ -188,19 +149,5 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         ),
       ],
     );
-  }
-
-  void _markAsRead(int index) {
-    setState(() {
-      _notifications[index]['read'] = true;
-    });
-  }
-
-  void _markAllAsRead() {
-    setState(() {
-      for (var notification in _notifications) {
-        notification['read'] = true;
-      }
-    });
   }
 }

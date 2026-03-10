@@ -3,5 +3,13 @@
     "flutterTools.displayMobxContextMenu": false,
     "flutterTools.displayRiverpodContextMenu": false,
     "flutterTools.displayModularContextMenu": false,
-    "cmake.sourceDirectory": "C:/4th Year 1st Semester/Thesis 1/echoshedv2/linux"
+    "cmake.sourceDirectory": "C:/4th Year 1st Semester/Thesis 1/echoshedv2/linux",
+    "files.readonlyInclude": {
+        "{**/.c4z/.extsrcs/*.PROTSYM.cbl,**/.c4z/.extsrcs/*.PROTSYM.listing}": true
+    },
+    "liveServer.settings.port": 5501,
+    "deno.enablePaths": [
+        "supabase/functions"
+    ],
+    "deno.unstable": true
 }

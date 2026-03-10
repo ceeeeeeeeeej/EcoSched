@@ -1,14 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:ui';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+import 'package:google_nav_bar/google_nav_bar.dart';
+
 import '../../../core/theme/app_theme.dart';
+
 import '../../../core/constants/app_constants.dart';
-import '../../../core/routes/app_router.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../core/utils/animations.dart';
 import '../../../core/providers/app_state_provider.dart';
+import '../../../core/services/pickup_service.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/reminder_service.dart';
+import '../../../core/services/bin_service.dart';
+import '../../../widgets/glassmorphic_container.dart';
+import '../../../widgets/premium_app_bar.dart';
 import '../../../widgets/live_scan_screen.dart';
 import '../../../widgets/gradient_background.dart';
+import '../../../widgets/modern_card.dart';
+import '../widgets/schedule_card.dart';
 import 'feedback_screen.dart';
-import 'compost_pit_finder_screen.dart';
+import 'special_collection_list_screen.dart';
 
 class ResidentDashboardScreen extends StatefulWidget {
   const ResidentDashboardScreen({super.key});
@@ -22,10 +36,33 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
   int currentPage = 0;
   int currentNavIndex = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final user = authService.user;
+      final serviceArea = user?['serviceArea'] ??
+          user?['barangay'] ??
+          user?['location'] ??
+          'victoria';
+      final String effectiveArea =
+          serviceArea.toString().split(',')[0].trim().toLowerCase();
+
+      if (kDebugMode) {
+        print(
+            '🏠 ResidentDashboard: Initializing for Area: $effectiveArea (raw: $serviceArea)');
+        print('🏠 User Data: $user');
+      }
+      Provider.of<PickupService>(context, listen: false)
+          .loadSchedulesForServiceArea(effectiveArea);
+    });
+  }
+
   final List<Widget> pages = const [
     _HomePage(),
     FeedbackScreen(),
-    CompostPitFinderScreen(),
+    SpecialCollectionListScreen(),
     _NotificationsPage(),
   ];
 
@@ -41,49 +78,68 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
         duration: const Duration(milliseconds: 300),
         child: pages[currentPage],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: currentNavIndex,
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: isDark ? AppTheme.backgroundSecondary : Colors.white,
-        selectedItemColor: isDark ? AppTheme.primaryLight : AppTheme.primary,
-        unselectedItemColor: isDark
-            ? AppTheme.textInverse.withOpacity(0.7)
-            : AppTheme.textSecondary.withOpacity(0.7),
-        showUnselectedLabels: true,
-        onTap: (navIndex) {
-          if (navIndex == 2) {
-            _openLiveScan(context);
-            return;
-          }
-
-          final mappedPageIndex = _mapNavIndexToPageIndex(navIndex);
-          setState(() {
-            currentNavIndex = navIndex;
-            currentPage = mappedPageIndex;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_rounded),
-            label: 'Home',
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: isDark
+              ? AppTheme.backgroundSecondary.withOpacity(0.5)
+              : Colors.white.withOpacity(0.5),
+        ),
+        child: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: SafeArea(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
+                child: GNav(
+                  gap: 10,
+                  activeColor: Colors.white,
+                  iconSize: 22,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  duration: const Duration(milliseconds: 400),
+                  tabBackgroundColor: AppTheme.primary,
+                  tabBorderRadius: AppTheme.radiusL,
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  tabs: const [
+                    GButton(
+                      icon: Icons.home_rounded,
+                      text: 'Home',
+                    ),
+                    GButton(
+                      icon: Icons.feedback_rounded,
+                      text: 'Feedback',
+                    ),
+                    GButton(
+                      icon: Icons.camera_rounded,
+                      text: 'Scan',
+                    ),
+                    GButton(
+                      icon: Icons.local_shipping_rounded,
+                      text: 'Special',
+                    ),
+                    GButton(
+                      icon: Icons.notifications_rounded,
+                      text: 'Alerts',
+                    ),
+                  ],
+                  selectedIndex: currentNavIndex,
+                  onTabChange: (index) {
+                    if (index == 2) {
+                      _openLiveScan(context);
+                      return;
+                    }
+                    final mappedPageIndex = _mapNavIndexToPageIndex(index);
+                    setState(() {
+                      currentNavIndex = index;
+                      currentPage = mappedPageIndex;
+                    });
+                  },
+                ),
+              ),
+            ),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.article_rounded),
-            label: 'Reports',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.camera_alt_rounded),
-            label: 'Scan',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.eco_rounded),
-            label: 'Eco',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications_none_rounded),
-            label: 'Alerts',
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -102,9 +158,9 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
       case 0:
         return 0; // Home
       case 1:
-        return 1; // Reports/Feedback
+        return 1; // Feedback
       case 3:
-        return 2; // Eco / Compost Pits
+        return 2; // Special Collection
       case 4:
         return 3; // Alerts / Notifications
       default:
@@ -150,8 +206,8 @@ class _EcoNavigationBar extends StatelessWidget {
   Widget build(BuildContext context) {
     const navItems = [
       _NavItemData(icon: Icons.home_rounded, label: 'Home'),
-      _NavItemData(icon: Icons.article_rounded, label: 'Reports'),
-      _NavItemData(icon: Icons.eco_rounded, label: 'Eco'),
+      _NavItemData(icon: Icons.article_rounded, label: 'Feedback'),
+      _NavItemData(icon: Icons.local_shipping_rounded, label: 'Special'),
       _NavItemData(icon: Icons.notifications_none_rounded, label: 'Alerts'),
     ];
 
@@ -312,54 +368,34 @@ class _HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final responsive = context.responsive;
     final theme = Theme.of(context);
-    final bool isDarkTheme = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: PremiumAppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'EcoSched',
-                  style: AppTheme.titleLarge.copyWith(
-                    color: AppTheme.textInverse,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusM),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.asset(
-                    'assets/images/house.gif',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ],
+            Icon(Icons.eco_rounded, color: AppTheme.textInverse, size: 28),
+            const SizedBox(width: 8),
+            Text(
+              'EcoSched',
+              style: AppTheme.titleLarge.copyWith(
+                color: AppTheme.textInverse,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
             ),
-            const SizedBox(height: 2),
           ],
         ),
-        centerTitle: false,
-        backgroundColor:
-            isDarkTheme ? AppTheme.backgroundSecondary : AppTheme.primaryGreen,
-        elevation: 0,
         actions: [
           Consumer<AppStateProvider>(
             builder: (context, appState, _) {
-              final isDark = appState.themeMode == ThemeMode.dark;
+              final isDark = Theme.of(context).brightness == Brightness.dark;
               return IconButton(
                 tooltip:
                     isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                icon: Icon(isDark ? Icons.dark_mode : Icons.light_mode),
+                icon: Icon(isDark
+                    ? Icons.light_mode_rounded
+                    : Icons.dark_mode_rounded),
                 onPressed: () {
                   appState
                       .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
@@ -376,95 +412,34 @@ class _HomePage extends StatelessWidget {
         child: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: responsive.horizontalPadding,
-                  vertical: responsive.verticalPadding,
-                ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Today's Overview
-                      _buildTodayOverview(context, responsive),
-
-                      SizedBox(height: responsive.spacing(32)),
-
-                      // Quick Actions
-                      Text(
-                        'Quick Actions',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontSize: (theme.textTheme.titleLarge?.fontSize ??
-                                  AppTheme.titleLarge.fontSize!) *
-                              responsive.fontSizeMultiplier,
-                        ),
-                      ),
-                      SizedBox(height: responsive.spacing(16)),
-
-                      // Action Buttons - Responsive layout
-                      responsive.isMobile
-                          ? Column(
-                              children: [
-                                _buildActionButton(
-                                  context,
-                                  'Schedule Pickup',
-                                  Icons.schedule,
-                                  AppTheme.primaryGreen,
-                                  () {
-                                    Navigator.of(context)
-                                        .pushNamed(AppRoutes.schedulePickup);
-                                  },
-                                  responsive,
-                                ),
-                                SizedBox(height: responsive.spacing(16)),
-                                _buildActionButton(
-                                  context,
-                                  'View Collection History',
-                                  Icons.history,
-                                  AppTheme.lightGreen,
-                                  () {
-                                    Navigator.of(context).pushNamed(
-                                      AppRoutes.residentCollectionHistory,
-                                    );
-                                  },
-                                  responsive,
-                                ),
-                              ],
-                            )
-                          : Row(
-                              children: [
-                                Expanded(
-                                  child: _buildActionButton(
-                                    context,
-                                    'Schedule Pickup',
-                                    Icons.schedule,
-                                    AppTheme.primaryGreen,
-                                    () {
-                                      Navigator.of(context)
-                                          .pushNamed(AppRoutes.schedulePickup);
-                                    },
-                                    responsive,
-                                  ),
-                                ),
-                                SizedBox(width: responsive.spacing(16)),
-                                Expanded(
-                                  child: _buildActionButton(
-                                    context,
-                                    'View Collection History',
-                                    Icons.history,
-                                    AppTheme.lightGreen,
-                                    () {
-                                      Navigator.of(context).pushNamed(
-                                        AppRoutes.residentCollectionHistory,
-                                      );
-                                    },
-                                    responsive,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ],
+              return RefreshIndicator(
+                onRefresh: () async {
+                  final serviceArea =
+                      Provider.of<AuthService>(context, listen: false)
+                          .user?['serviceArea'];
+                  if (serviceArea != null) {
+                    await Provider.of<PickupService>(context, listen: false)
+                        .loadSchedulesForServiceArea(serviceArea.toString());
+                  }
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: responsive.horizontalPadding,
+                    vertical: responsive.verticalPadding,
+                  ),
+                  child: ConstrainedBox(
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Only upcoming collection card is shown to simplify UI
+                        _buildUpcomingCollectionCard(context, responsive),
+                        SizedBox(height: responsive.spacing(24)),
+                        // assigned schedule section removed per request
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -475,175 +450,252 @@ class _HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildTodayOverview(BuildContext context, Responsive responsive) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(responsive.spacing(16)),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(AppTheme.radiusXL),
-        boxShadow: AppTheme.shadowSmall,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Today\'s Overview',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontSize: (theme.textTheme.titleLarge?.fontSize ??
-                      AppTheme.titleLarge.fontSize!) *
-                  responsive.fontSizeMultiplier,
-            ),
-          ),
-          SizedBox(height: responsive.spacing(12)),
-          Row(
-            children: [
-              Expanded(
-                child: _buildOverviewStatCard(
-                  context,
-                  icon: Icons.calendar_today_rounded,
-                  label: 'Next Pickup',
-                  value: 'Scheduled',
-                  color: AppTheme.primaryGreen,
-                  responsive: responsive,
-                ),
-              ),
-              SizedBox(width: responsive.spacing(12)),
-              Expanded(
-                child: _buildOverviewStatCard(
-                  context,
-                  icon: Icons.recycling_rounded,
-                  label: 'Sorting Score',
-                  value: 'Great',
-                  color: AppTheme.accentBlue,
-                  responsive: responsive,
-                ),
-              ),
-              SizedBox(width: responsive.spacing(12)),
-              Expanded(
-                child: _buildOverviewStatCard(
-                  context,
-                  icon: Icons.emoji_events_rounded,
-                  label: 'Eco Points',
-                  value: '120',
-                  color: AppTheme.accentOrange,
-                  responsive: responsive,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+  // Assigned schedule and empty state methods removed to simplify home screen
+
+  String _formatAssignedDate(dynamic rawDate) {
+    if (rawDate is DateTime) {
+      return _formatDate(rawDate);
+    }
+    if (rawDate is String && rawDate.isNotEmpty) {
+      return rawDate;
+    }
+    return 'Date to be announced';
   }
 
-  Widget _buildOverviewStatCard(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-    required Responsive responsive,
-  }) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: EdgeInsets.all(responsive.spacing(12)),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(AppTheme.radiusL),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: color,
-            size: responsive.iconSize(22),
-          ),
-          SizedBox(height: responsive.spacing(8)),
-          Text(
-            value,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              fontSize: (theme.textTheme.titleMedium?.fontSize ??
-                      AppTheme.titleMedium.fontSize!) *
-                  responsive.fontSizeMultiplier,
-            ),
-          ),
-          SizedBox(height: responsive.spacing(4)),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: (theme.textTheme.bodySmall?.fontSize ??
-                      AppTheme.bodySmall.fontSize!) *
-                  responsive.fontSizeMultiplier,
-            ),
-          ),
-        ],
-      ),
-    );
+  String _formatDate(DateTime date) {
+    return DateFormat('MMMM d, yyyy').format(date);
   }
 
-  Widget _buildActionButton(
-    BuildContext context,
-    String label,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-    Responsive responsive,
-  ) {
+  Widget _buildUpcomingCollectionCard(
+      BuildContext context, Responsive responsive) {
     final theme = Theme.of(context);
-    final bool isDarkTheme = theme.brightness == Brightness.dark;
+    return Consumer<PickupService>(
+      builder: (context, pickupService, _) {
+        // Get user's service area
+        final auth = Provider.of<AuthService>(context, listen: false);
+        final user = auth.user;
+        final serviceArea = user?['barangay'] ?? user?['location'] ?? '';
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusXL),
-      child: Ink(
-        decoration: BoxDecoration(
-          color: isDarkTheme ? AppTheme.backgroundSecondary : Colors.white,
-          borderRadius: BorderRadius.circular(AppTheme.radiusXL),
-          border: Border.all(color: color.withOpacity(0.25)),
-          boxShadow: AppTheme.shadowSmall,
-        ),
-        padding: EdgeInsets.symmetric(
-          horizontal: responsive.spacing(20),
-          vertical: responsive.spacing(16),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: responsive.iconSize(44),
-              height: responsive.iconSize(44),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(AppTheme.radiusL),
-              ),
-              child: Icon(
-                icon,
-                color: color,
-                size: responsive.iconSize(24),
-              ),
-            ),
-            SizedBox(width: responsive.spacing(16)),
-            Expanded(
-              child: Text(
-                label,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontSize: (theme.textTheme.titleMedium?.fontSize ?? 18) *
-                      responsive.fontSizeMultiplier,
+        // Get next collection
+        final nextCollection = pickupService.getNextCollection(serviceArea);
+
+        if (nextCollection == null) {
+          return const SizedBox.shrink();
+        }
+
+        final collectionDate = nextCollection['date'] as DateTime;
+        final now = DateTime.now();
+        final daysUntil = collectionDate.difference(now).inDays;
+        final isRescheduled = nextCollection['isRescheduled'] ?? false;
+        final rescheduledReason = nextCollection['rescheduledReason'] ?? '';
+
+        final String area = (nextCollection['address'] ?? '').toString();
+        String wasteType =
+            (nextCollection['type'] ?? 'Eco Collection').toString();
+        if (area.isNotEmpty && area.toLowerCase() != 'unknown area') {
+          final capArea =
+              area[0].toUpperCase() + area.substring(1).toLowerCase();
+          if (!wasteType.toLowerCase().contains(area.toLowerCase())) {
+            wasteType = '$capArea $wasteType';
+          }
+        }
+
+        return AppAnimations.fadeInSlideUp(
+          duration: AppAnimations.normal,
+          offset: 20,
+          child: ModernCard(
+            gradient: isRescheduled
+                ? [AppTheme.accentOrange, const Color(0xFFFF6B6B)]
+                : [AppTheme.primaryGreen, AppTheme.lightGreen],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        isRescheduled
+                            ? Icons.schedule_outlined
+                            : Icons.notifications_active_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  isRescheduled
+                                      ? 'Collection Rescheduled'
+                                      : 'Upcoming Collection',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isRescheduled)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'RESCHEDULED',
+                                    style: TextStyle(
+                                      color: AppTheme.accentOrange,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            wasteType,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.white.withOpacity(0.9),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 16),
+                Divider(color: Colors.white.withOpacity(0.3)),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Date',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDate(collectionDate),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Time',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            nextCollection['time'] ?? '08:00',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppAnimations.pulse(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '$daysUntil',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 24,
+                              ),
+                            ),
+                            Text(
+                              daysUntil == 1 ? 'day' : 'days',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (isRescheduled && rescheduledReason.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.info_outline,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Reason: $rescheduledReason',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
-            Icon(
-              Icons.arrow_forward_rounded,
-              color: theme.textTheme.bodyMedium?.color ?? AppTheme.textLight,
-              size: responsive.iconSize(20),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -657,122 +709,76 @@ class _NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<_NotificationsPage> {
-  final List<Map<String, dynamic>> notifications = [
-    {
-      'title': 'Collection Scheduled',
-      'message': 'Your waste collection is scheduled for tomorrow at 8:00 AM',
-      'time': '2 hours ago',
-      'type': 'schedule',
-      'isRead': false,
-    },
-    {
-      'title': 'New Compost Pit Available',
-      'message':
-          'A new compost pit has been added near Victoria Community Center',
-      'time': '1 day ago',
-      'type': 'info',
-      'isRead': false,
-    },
-    {
-      'title': 'Feedback Response',
-      'message':
-          'Thank you for your feedback. We have implemented your suggestion.',
-      'time': '2 days ago',
-      'type': 'feedback',
-      'isRead': true,
-    },
-    {
-      'title': 'Collection Completed',
-      'message':
-          'Your waste has been successfully collected. Thank you for participating!',
-      'time': '3 days ago',
-      'type': 'success',
-      'isRead': true,
-    },
-    {
-      'title': 'Reminder: Sort Your Waste',
-      'message':
-          'Please remember to sort your waste properly for better recycling.',
-      'time': '1 week ago',
-      'type': 'reminder',
-      'isRead': true,
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final user = auth.user;
+      final barangay = user?['barangay'] ?? user?['location'] ?? 'victoria';
+      Provider.of<BinService>(context, listen: false)
+          .loadBinsForArea(barangay.toString());
+    });
+  }
+
+  String _relativeTime(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes} minutes ago';
+    if (diff.inDays < 1) return '${diff.inHours} hours ago';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return DateFormat('MMM d, y').format(date);
+  }
 
   @override
   Widget build(BuildContext context) {
     final responsive = context.responsive;
     final theme = Theme.of(context);
-    final bool isDarkTheme = theme.brightness == Brightness.dark;
+    final reminderService = context.watch<ReminderService>();
+
+    final allNotifications = reminderService.reminders;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: PremiumAppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'EcoSched',
-                  style: AppTheme.titleLarge.copyWith(
-                    color: AppTheme.textInverse,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusM),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Image.asset(
-                    'assets/images/house.gif',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ],
+            Text(
+              'Notifications',
+              style: AppTheme.titleLarge.copyWith(
+                color: AppTheme.textInverse,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.radiusM),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset(
+                'assets/images/house.gif',
+                fit: BoxFit.cover,
+              ),
             ),
           ],
         ),
-        centerTitle: false,
-        backgroundColor:
-            isDarkTheme ? AppTheme.backgroundSecondary : AppTheme.primaryGreen,
-        foregroundColor: AppTheme.textInverse,
         actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                for (var notification in notifications) {
-                  notification['isRead'] = true;
-                }
-              });
-            },
-            child: Text(
-              'Mark All Read',
-              style: TextStyle(
-                color: AppTheme.textInverse,
-                fontSize: 14 * responsive.fontSizeMultiplier,
+          if (reminderService.unreadCount > 0)
+            TextButton(
+              onPressed: () => reminderService.markAllAsRead(),
+              child: Text(
+                'Mark All Read',
+                style: TextStyle(
+                  color: AppTheme.textInverse,
+                  fontSize: 14 * responsive.fontSizeMultiplier,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          Consumer<AppStateProvider>(
-            builder: (context, appState, _) {
-              final isDark = appState.themeMode == ThemeMode.dark;
-              return IconButton(
-                tooltip:
-                    isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                icon: Icon(isDark ? Icons.dark_mode : Icons.light_mode),
-                onPressed: () {
-                  appState
-                      .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
-                },
-              );
-            },
-          ),
         ],
       ),
       // Use themed scaffold background so dark mode is respected
@@ -790,24 +796,33 @@ class _NotificationsPageState extends State<_NotificationsPage> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     minHeight: constraints.maxHeight,
-                    maxWidth: responsive.getContainerWidth(
-                      mobilePercent: 1.0,
-                      tabletPercent: 0.9,
-                      desktopPercent: 0.8,
-                      maxWidth: 1000,
-                    ),
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Notifications List
-                      ...notifications.map((notification) {
-                        return Padding(
-                          padding:
-                              EdgeInsets.only(bottom: responsive.spacing(12)),
-                          child: _buildNotificationCard(
-                              context, notification, responsive),
-                        );
-                      }),
+                      // Removed Bin Status Section
+
+                      Text(
+                        'Notifications',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20 * responsive.fontSizeMultiplier,
+                        ),
+                      ),
+                      SizedBox(height: responsive.spacing(12)),
+
+                      if (allNotifications.isEmpty)
+                        _buildEmptyAlertsState(context, responsive)
+                      else
+                        // Notifications List
+                        ...allNotifications.map((notification) {
+                          return Padding(
+                            padding:
+                                EdgeInsets.only(bottom: responsive.spacing(12)),
+                            child: _buildNotificationCard(
+                                context, notification, responsive),
+                          );
+                        }),
                     ],
                   ),
                 ),
@@ -819,10 +834,49 @@ class _NotificationsPageState extends State<_NotificationsPage> {
     );
   }
 
+  Widget _buildEmptyAlertsState(BuildContext context, Responsive responsive) {
+    return GlassmorphicContainer(
+      width: double.infinity,
+      padding: EdgeInsets.all(responsive.spacing(32)),
+      child: Column(
+        children: [
+          Icon(
+            Icons.notifications_off_rounded,
+            size: 48,
+            color: AppTheme.textLight.withOpacity(0.2),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'All clear! No notifications at this time.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.textLight),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotificationCard(BuildContext context,
       Map<String, dynamic> notification, Responsive responsive) {
+    final theme = Theme.of(context);
+    final bool isDarkTheme = theme.brightness == Brightness.dark;
+    final reminderService = context.read<ReminderService>();
+
+    final dynamic id = notification['id'];
+    final bool isRead = notification['read'] ?? false;
+    final DateTime createdAt = notification['createdAt'] as DateTime;
+
     return Card(
       margin: EdgeInsets.only(bottom: responsive.spacing(12)),
+      elevation: isRead ? 0 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusM),
+        side: BorderSide(
+          color:
+              isRead ? Colors.transparent : AppTheme.primary.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
       child: ListTile(
         leading: Container(
           width: responsive.iconSize(40),
@@ -838,44 +892,42 @@ class _NotificationsPageState extends State<_NotificationsPage> {
           ),
         ),
         title: Text(
-          notification['title'],
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: notification['isRead']
-                    ? FontWeight.normal
-                    : FontWeight.bold,
-                color: AppTheme.textDark,
-                fontSize:
-                    (Theme.of(context).textTheme.titleMedium?.fontSize ?? 16) *
-                        responsive.fontSizeMultiplier,
-              ),
+          notification['title'] ?? 'Notification',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+            color:
+                isDarkTheme ? theme.colorScheme.onSurface : AppTheme.textDark,
+            fontSize: (theme.textTheme.titleMedium?.fontSize ?? 16) *
+                responsive.fontSizeMultiplier,
+          ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              notification['message'],
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.textLight,
-                    fontSize:
-                        (Theme.of(context).textTheme.bodyMedium?.fontSize ??
-                                14) *
-                            responsive.fontSizeMultiplier,
-                  ),
+              notification['message'] ?? '',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface.withOpacity(0.75)
+                    : AppTheme.textLight,
+                fontSize: (theme.textTheme.bodyMedium?.fontSize ?? 14) *
+                    responsive.fontSizeMultiplier,
+              ),
             ),
             SizedBox(height: responsive.spacing(4)),
             Text(
-              notification['time'],
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textLight,
-                    fontSize:
-                        (Theme.of(context).textTheme.bodySmall?.fontSize ??
-                                12) *
-                            responsive.fontSizeMultiplier,
-                  ),
+              _relativeTime(createdAt),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: isDarkTheme
+                    ? theme.colorScheme.onSurface.withOpacity(0.7)
+                    : AppTheme.textLight,
+                fontSize: (theme.textTheme.bodySmall?.fontSize ?? 12) *
+                    responsive.fontSizeMultiplier,
+              ),
             ),
           ],
         ),
-        trailing: notification['isRead']
+        trailing: isRead
             ? null
             : Container(
                 width: responsive.iconSize(8),
@@ -886,11 +938,7 @@ class _NotificationsPageState extends State<_NotificationsPage> {
                 ),
               ),
         onTap: () {
-          if (mounted) {
-            setState(() {
-              notification['isRead'] = true;
-            });
-          }
+          reminderService.markAsRead(id);
         },
       ),
     );

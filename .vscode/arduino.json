@@ -1,0 +1,6 @@
+{
+    "sketch": "firmware\\sensor\\sensor.ino",
+    "board": "esp8266:esp8266:generic",
+    "port": "COM5",
+    "output": "build"
+}

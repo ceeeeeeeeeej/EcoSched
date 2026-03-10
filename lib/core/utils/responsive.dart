@@ -3,33 +3,38 @@ import 'package:flutter/material.dart';
 /// Responsive utility class for handling different screen sizes
 class Responsive {
   final BuildContext context;
-  
+
   Responsive(this.context);
-  
+
   /// Get screen width
   double get width => MediaQuery.of(context).size.width;
-  
+
   /// Get screen height
   double get height => MediaQuery.of(context).size.height;
-  
+
   /// Get screen orientation
   Orientation get orientation => MediaQuery.of(context).orientation;
-  
+
   /// Check if device is mobile (width < 600)
   bool get isMobile => width < 600;
-  
+
   /// Check if device is tablet (600 <= width < 1024)
   bool get isTablet => width >= 600 && width < 1024;
-  
+
   /// Check if device is desktop (width >= 1024)
   bool get isDesktop => width >= 1024;
-  
-  /// Check if device is small mobile (width < 360)
-  bool get isSmallMobile => width < 360;
-  
+
+  /// Check if device is small mobile (width < 380)
+  bool get isSmallMobile => width < 380;
+
+  /// Check if device is tiny mobile (width < 320)
+  bool get isTinyMobile => width < 320;
+
   /// Get responsive padding based on screen size
   EdgeInsets get padding {
-    if (isSmallMobile) {
+    if (isTinyMobile) {
+      return const EdgeInsets.all(12.0);
+    } else if (isSmallMobile) {
       return const EdgeInsets.all(16.0);
     } else if (isMobile) {
       return const EdgeInsets.all(20.0);
@@ -39,10 +44,12 @@ class Responsive {
       return const EdgeInsets.all(32.0);
     }
   }
-  
+
   /// Get responsive horizontal padding
   double get horizontalPadding {
-    if (isSmallMobile) {
+    if (isTinyMobile) {
+      return 12.0;
+    } else if (isSmallMobile) {
       return 16.0;
     } else if (isMobile) {
       return 20.0;
@@ -52,10 +59,12 @@ class Responsive {
       return 48.0;
     }
   }
-  
+
   /// Get responsive vertical padding
   double get verticalPadding {
-    if (isSmallMobile) {
+    if (isTinyMobile) {
+      return 12.0;
+    } else if (isSmallMobile) {
       return 16.0;
     } else if (isMobile) {
       return 20.0;
@@ -65,11 +74,13 @@ class Responsive {
       return 32.0;
     }
   }
-  
+
   /// Get responsive font size multiplier
   double get fontSizeMultiplier {
-    if (isSmallMobile) {
-      return 0.9;
+    if (isTinyMobile) {
+      return 0.75;
+    } else if (isSmallMobile) {
+      return 0.85;
     } else if (isMobile) {
       return 1.0;
     } else if (isTablet) {
@@ -78,10 +89,12 @@ class Responsive {
       return 1.2;
     }
   }
-  
+
   /// Get responsive icon size
   double iconSize(double baseSize) {
-    if (isSmallMobile) {
+    if (isTinyMobile) {
+      return baseSize * 0.75;
+    } else if (isSmallMobile) {
       return baseSize * 0.85;
     } else if (isMobile) {
       return baseSize;
@@ -91,10 +104,12 @@ class Responsive {
       return baseSize * 1.3;
     }
   }
-  
+
   /// Get responsive spacing
   double spacing(double baseSpacing) {
-    if (isSmallMobile) {
+    if (isTinyMobile) {
+      return baseSpacing * 0.65;
+    } else if (isSmallMobile) {
       return baseSpacing * 0.75;
     } else if (isMobile) {
       return baseSpacing;
@@ -104,7 +119,7 @@ class Responsive {
       return baseSpacing * 1.5;
     }
   }
-  
+
   /// Get responsive width (clamped between min and max)
   double responsiveWidth({
     double? min,
@@ -112,22 +127,22 @@ class Responsive {
     double? percent,
   }) {
     double calculatedWidth = width;
-    
+
     if (percent != null) {
       calculatedWidth = width * percent;
     }
-    
+
     if (min != null && calculatedWidth < min) {
       return min;
     }
-    
+
     if (max != null && calculatedWidth > max) {
       return max;
     }
-    
+
     return calculatedWidth;
   }
-  
+
   /// Get responsive grid cross axis count
   int getGridCrossAxisCount({
     int mobile = 1,
@@ -142,7 +157,7 @@ class Responsive {
       return desktop;
     }
   }
-  
+
   /// Get responsive container width
   double getContainerWidth({
     double mobilePercent = 1.0,
@@ -158,13 +173,13 @@ class Responsive {
     } else {
       percent = desktopPercent;
     }
-    
+
     double calculatedWidth = width * percent;
-    
+
     if (maxWidth != null && calculatedWidth > maxWidth) {
       return maxWidth;
     }
-    
+
     return calculatedWidth;
   }
 }
@@ -173,4 +188,3 @@ class Responsive {
 extension ResponsiveExtension on BuildContext {
   Responsive get responsive => Responsive(this);
 }
-

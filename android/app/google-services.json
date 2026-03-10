@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "498311087081",
+    "project_id": "ecosched-app",
+    "storage_bucket": "ecosched-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:498311087081:android:7ee58cbf187262835e0178",
+        "android_client_info": {
+          "package_name": "com.example.echoshedv2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBycG7_flnqLPPeL28uJJHjvFSMTvtpDa4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

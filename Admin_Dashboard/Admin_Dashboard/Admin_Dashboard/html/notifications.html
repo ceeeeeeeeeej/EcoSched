@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Center - EcoSched Admin</title>
+    <link rel="stylesheet" href="../css/main.css">
+    <link rel="stylesheet" href="../css/pages/notifications.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="page-container">
+        <div class="page-header">
+            <div class="header-left">
+                <h1 class="page-title">
+                    <i class="fas fa-bell"></i>
+                    Notification Center
+                </h1>
+                <p class="page-subtitle">Manage system alerts and notifications</p>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary" onclick="openSettingsModal()">
+                    <i class="fas fa-cog"></i>
+                    Settings
+                </button>
+                <button class="btn btn-primary" onclick="openSendModal()">
+                    <i class="fas fa-paper-plane"></i>
+                    Send Notification
+                </button>
+                <button class="btn btn-secondary" onclick="markAllRead()" title="Mark All Read">
+                    <i class="fas fa-check-double"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Notification Stats -->
+        <div class="notification-stats">
+            <div class="stat-item">
+                <div class="stat-icon unread">
+                    <i class="fas fa-bell"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-number" id="unreadCount">12</div>
+                    <div class="stat-label">Unread</div>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-icon urgent">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-number" id="urgentCount">3</div>
+                    <div class="stat-label">Urgent</div>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-icon today">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-number" id="todayCount">8</div>
+                    <div class="stat-label">Today</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters-container">
+            <div class="filters-row">
+                <div class="filter-group">
+                    <label>Filter by Type</label>
+                    <select class="filter-select" id="typeFilter">
+                        <option value="">All Types</option>
+                        <option value="system">System</option>
+                        <option value="route">Route</option>
+                        <option value="collector">Collector</option>
+                        <option value="iot">IoT Sensor</option>
+                        <option value="user">User</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Filter by Priority</label>
+                    <select class="filter-select" id="priorityFilter">
+                        <option value="">All Priorities</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Filter by Status</label>
+                    <select class="filter-select" id="statusFilter">
+                        <option value="">All Status</option>
+                        <option value="unread">Unread</option>
+                        <option value="read">Read</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <button class="btn btn-secondary" onclick="resetFilters()">
+                        <i class="fas fa-refresh"></i>
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications List -->
+        <div class="notifications-container">
+            <div class="notifications-list" id="notificationsList">
+                <!-- Notifications will be loaded here -->
+            </div>
+        </div>
+
+        <!-- Notification Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Notification Settings</h3>
+                    <button class="modal-close" onclick="closeSettingsModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h4>Email Notifications</h4>
+                        <div class="setting-item">
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span>System alerts</span>
+                        </div>
+                        <div class="setting-item">
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span>Route updates</span>
+                        </div>
+                        <div class="setting-item">
+                            <label class="switch">
+                                <input type="checkbox">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Daily reports</span>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4>Push Notifications</h4>
+                        <div class="setting-item">
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                            <span>Urgent alerts</span>
+                        </div>
+                        <div class="setting-item">
+                            <label class="switch">
+                                <input type="checkbox">
+                                <span class="slider"></span>
+                            </label>
+                            <span>IoT sensor alerts</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeSettingsModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="../js/pages/notifications.js"></script>
+</body>
+
+</html>

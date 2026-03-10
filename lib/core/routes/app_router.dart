@@ -1,30 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../transitions/nature_transitions.dart';
 import '../services/auth_service.dart';
-
 import '../../features/splash/splash_screen.dart';
 import '../../features/role_selection/role_selection_screen.dart';
 import '../../features/auth/auth_screen.dart';
 import '../../features/auth/landing_page_screen.dart';
-import '../../features/auth/login_screen.dart';
-import '../../widgets/enhanced_nature_background.dart';
+import '../../features/collector/screens/collector_login.dart';
 import '../../widgets/glassmorphic_container.dart';
-// import '../../widgets/nature_animations.dart';
+import '../../widgets/enhanced_nature_background.dart';
+import '../utils/responsive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../features/resident/screens/resident_dashboard_screen.dart';
-import '../../features/resident/screens/eco_tips_screen.dart';
 import '../../features/resident/screens/resident_location_selection_screen.dart';
 import '../../features/resident/screens/resident_location_map_screen.dart';
-import '../../features/resident/screens/schedule_pickup_screen.dart';
 import '../../features/resident/screens/notification_center_screen.dart';
 import '../../features/resident/screens/feedback_screen.dart';
-import '../../features/resident/screens/compost_pit_finder_screen.dart';
-import '../../features/resident/screens/resident_collection_history_screen.dart';
 import '../../features/collector/screens/collector_dashboard_screen.dart';
 import '../../features/common/screens/profile_screen.dart';
 import '../../features/common/screens/settings_screen.dart';
+import '../../features/resident/screens/welcome_animation_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -32,7 +27,6 @@ class AppRoutes {
   static const String roleSelection = '/role';
   static const String auth = '/auth';
   static const String collectorLogin = '/collector/login';
-
   static const String residentDashboard = '/resident';
   static const String residentLocationSelection = '/resident/location';
   static const String residentLocationMap = '/resident/location-map';
@@ -42,10 +36,10 @@ class AppRoutes {
   static const String compostPitFinder = '/resident/compost-pits';
   static const String residentCollectionHistory = '/resident/history';
   static const String ecoTips = '/resident/eco-tips';
-
   static const String collectorDashboard = '/collector';
   static const String profile = '/profile';
   static const String settings = '/settings';
+  static const String welcomeAnimation = '/welcome-animation';
 }
 
 class AppRouter {
@@ -80,9 +74,12 @@ class AppRouter {
       case AppRoutes.auth:
         return const AuthScreen();
       case AppRoutes.collectorLogin:
-        return _CollectorLoginWrapper();
+        return const _CollectorLoginWrapper();
       case AppRoutes.residentDashboard:
         // Allow residents without authentication check
+        if (auth != null && auth.isCollector()) {
+          return const CollectorDashboardScreen();
+        }
         return const ResidentDashboardScreen();
       case AppRoutes.residentLocationSelection:
         final selectedBarangay = settings.arguments as String?;
@@ -98,23 +95,23 @@ class AppRouter {
           purok: purok,
           currentLocation: currentLocation,
         );
+      case AppRoutes.welcomeAnimation:
+        final barangay = settings.arguments as String? ?? 'Victoria';
+        return WelcomeAnimationScreen(barangay: barangay);
       case AppRoutes.schedulePickup:
-        // Allow residents without authentication check
-        return const SchedulePickupScreen();
-      case AppRoutes.residentCollectionHistory:
-        return const ResidentCollectionHistoryScreen();
+      //   // Allow residents without authentication check
+      //   return const SchedulePickupScreen();
+      // case AppRoutes.residentCollectionHistory:
+      //   return const ResidentCollectionHistoryScreen();
       case AppRoutes.residentNotifications:
         // Allow residents without authentication check
         return const NotificationCenterScreen();
       case AppRoutes.residentFeedback:
         // Allow residents without authentication check
         return const FeedbackScreen();
-      case AppRoutes.compostPitFinder:
-        // Allow residents without authentication check
-        return const CompostPitFinderScreen();
-      case AppRoutes.ecoTips:
-        // Allow residents without authentication check
-        return const EcoTipsScreen();
+      // case AppRoutes.compostPitFinder:
+      //   // Allow residents without authentication check
+      //   return const CompostPitFinderScreen();
       case AppRoutes.collectorDashboard:
         if (auth != null && auth.isAuthenticated && auth.isCollector()) {
           return const CollectorDashboardScreen();
@@ -216,102 +213,148 @@ class _CollectorLoginWrapperState extends State<_CollectorLoginWrapper>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final responsive = context.responsive;
+
     return Scaffold(
-      body: Stack(
-        children: [
-          EnhancedNatureBackground(
-            showPattern: true,
-            child: SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(AppTheme.spacing8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 40),
+      body: EnhancedNatureBackground(
+        showPattern: true,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Navigation Bar
+              Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: responsive.horizontalPadding / 2,
+                  vertical: responsive.spacing(8),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      onPressed: () => Navigator.of(context).pop(),
+                      color: AppTheme.textDark,
+                      tooltip: 'Back to Role Selection',
+                    ),
+                  ],
+                ),
+              ),
 
-                      // Back Button
-                      Align(
-                        alignment: Alignment.topLeft,
-                        child: IconButton(
-                          icon: const Icon(Icons.arrow_back),
-                          onPressed: () => Navigator.of(context).pop(),
-                          color: AppTheme.textDark,
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // Collector Icon
-                      FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: SlideTransition(
-                          position: _slideAnimation,
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 100,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      AppTheme.accentBlue,
-                                      AppTheme.accentBlue.withOpacity(0.8),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  borderRadius: BorderRadius.circular(25),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color:
-                                          AppTheme.accentBlue.withOpacity(0.3),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: responsive.horizontalPadding,
+                      vertical: responsive.spacing(12),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Collector Icon with enhanced styling
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Column(
+                              children: [
+                                NatureHeroAnimation(
+                                  tag: 'collector_login_icon',
+                                  child: Container(
+                                    width: responsive.isMobile ? 100 : 120,
+                                    height: responsive.isMobile ? 100 : 120,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: AppTheme.primaryGradient,
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(30),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppTheme.primary
+                                              .withOpacity(0.35),
+                                          blurRadius: 25,
+                                          offset: const Offset(0, 12),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+                                    child: Icon(
+                                      Icons.local_shipping_rounded,
+                                      size: responsive.isMobile ? 50 : 60,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
-                                child: const Icon(
-                                  Icons.local_shipping,
-                                  size: 50,
-                                  color: Colors.white,
+                                const SizedBox(height: 28),
+                                Text(
+                                  'Collector Login',
+                                  style:
+                                      theme.textTheme.headlineMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.textDark,
+                                    fontSize: (theme.textTheme.headlineMedium
+                                                ?.fontSize ??
+                                            32) *
+                                        responsive.fontSizeMultiplier,
+                                    letterSpacing: -0.5,
+                                  ),
+                                  textAlign: TextAlign.center,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Sign in to manage your collection routes and community schedule.',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    color: AppTheme.textLight,
+                                    fontSize:
+                                        (theme.textTheme.bodyLarge?.fontSize ??
+                                                16) *
+                                            responsive.fontSizeMultiplier,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
 
-                      const SizedBox(height: 40),
+                        const SizedBox(height: 48),
 
-                      // Login Form
-                      FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: SlideTransition(
-                          position: _slideAnimation,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 400),
-                            child: GlassmorphicContainer(
-                              width: double.infinity,
-                              padding: EdgeInsets.all(AppTheme.spacing8),
-                              borderRadius: AppTheme.radiusL,
-                              child: LoginScreen(
-                                onToggleMode: () {},
-                                isCollectorLogin: true,
+                        // Login Form Container
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: responsive.getContainerWidth(
+                                  mobilePercent: 1.0,
+                                  tabletPercent: 0.7,
+                                  desktopPercent: 0.5,
+                                  maxWidth: 450,
+                                ),
+                              ),
+                              child: GlassmorphicContainer(
+                                width: double.infinity,
+                                padding: EdgeInsets.all(responsive.spacing(24)),
+                                borderRadius: AppTheme.radiusXL,
+                                child: LoginScreen(
+                                  onToggleMode: () {},
+                                  isCollectorLogin: true,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
 
-                      const SizedBox(height: 30),
-                    ],
+                        SizedBox(height: responsive.spacing(40)),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

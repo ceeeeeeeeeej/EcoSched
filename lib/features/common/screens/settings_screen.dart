@@ -13,17 +13,12 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifications = true;
-  bool _darkMode = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final appState = Provider.of<AppStateProvider>(context, listen: false);
-    _darkMode = appState.themeMode == ThemeMode.dark;
-  }
 
   @override
   Widget build(BuildContext context) {
+    final appState = context.watch<AppStateProvider>();
+    final bool isDarkMode = appState.themeMode == ThemeMode.dark;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: SafeArea(
@@ -53,13 +48,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Dark mode'),
-                      value: _darkMode,
+                      value: isDarkMode,
                       onChanged: (v) {
-                        setState(() => _darkMode = v);
-                        final appState = context.read<AppStateProvider>();
-                        appState.setThemeMode(
-                          v ? ThemeMode.dark : ThemeMode.light,
-                        );
+                        context.read<AppStateProvider>().setThemeMode(
+                              v ? ThemeMode.dark : ThemeMode.light,
+                            );
                       },
                     ),
                   ],
