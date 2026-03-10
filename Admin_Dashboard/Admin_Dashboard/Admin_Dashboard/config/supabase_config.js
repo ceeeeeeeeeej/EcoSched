@@ -765,9 +765,7 @@ export const dbService = {
                 if (notifError) console.error('Notification error:', notifError);
 
                 // 🚀 Send FCM push notification via Supabase Edge Function
-                // TEMPORARY BYPASS: Edge Function currently crashing on Supabase due to Deno import issues.
-                // We are pivoting to GitHub Actions to deploy a fix remotely.
-                /*
+                // This ensures the resident receives a push even if the app is closed/killed
                 try {
                     const SUPABASE_URL = 'https://bfqktqtsjchbmopafgzf.supabase.co';
                     const SUPABASE_ANON_KEY = 'sb_publishable_ucEKoeLHhbxBVtzDABvVIg_eKIhIQ31';
@@ -783,13 +781,27 @@ export const dbService = {
                             body: `Your special collection request for ${data.waste_type} has been approved. Please proceed to the cashier for payment.`,
                         }),
                     });
-                    const pushResult = await pushResponse.json();
-                    console.log('📲 FCM push result:', pushResult);
+
+                    if (!pushResponse.ok) {
+                        const errorText = await pushResponse.text();
+                        console.error('❌ Edge Function Error Status:', pushResponse.status);
+                        console.error('❌ Edge Function Error Body:', errorText);
+                        
+                        // Try to parse as JSON if possible, otherwise use text
+                        let errorDetail;
+                        try {
+                            errorDetail = JSON.parse(errorText);
+                        } catch (e) {
+                            errorDetail = errorText;
+                        }
+                        console.warn('⚠️ FCM push failed accurately:', errorDetail);
+                    } else {
+                        const pushResult = await pushResponse.json();
+                        console.log('📲 FCM push result:', pushResult);
+                    }
                 } catch (pushErr) {
-                    console.warn('⚠️ FCM push failed (non-critical):', pushErr);
+                    console.error('💥 Critical FCM error:', pushErr);
                 }
-                */
-                console.log('⏭️ Push notification skipped (Edge Function deployment in progress)');
             }
 
             return { data, error: null };
