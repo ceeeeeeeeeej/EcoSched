@@ -88,11 +88,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const projectId = Deno.env.get("FCM_PROJECT_ID");
-    const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL");
-    const privateKey = Deno.env.get("FCM_PRIVATE_KEY");
+    const saJson = Deno.env.get("FCM_SERVICE_ACCOUNT");
+    let projectId = Deno.env.get("FCM_PROJECT_ID");
+    let clientEmail = Deno.env.get("FCM_CLIENT_EMAIL");
+    let privateKey = Deno.env.get("FCM_PRIVATE_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    // Fallback to Service Account JSON if individual keys are missing
+    if (saJson && (!projectId || !clientEmail || !privateKey)) {
+      try {
+        const sa = JSON.parse(saJson);
+        projectId = projectId || sa.project_id;
+        clientEmail = clientEmail || sa.client_email;
+        privateKey = privateKey || sa.private_key;
+        console.log("📂 Credentials supplemented from FCM_SERVICE_ACCOUNT JSON");
+      } catch (e) {
+        console.error("❌ FCM_SERVICE_ACCOUNT is not valid JSON");
+      }
+    }
 
     if (!projectId || !clientEmail || !privateKey) {
       const missing = [];
@@ -103,7 +117,8 @@ Deno.serve(async (req: Request) => {
       console.error("❌ FCM V1 credentials missing:", missing.join(", "));
       return new Response(JSON.stringify({ 
         error: "FCM V1 configuration missing", 
-        missing_keys: missing 
+        missing_keys: missing,
+        has_sa_json: !!saJson
       }), {
         status: 500,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
