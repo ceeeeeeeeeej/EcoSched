@@ -23,18 +23,16 @@ async function getAccessToken(clientEmail: string, privateKey: string) {
     const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
     const message = `${encodedHeader}.${encodedPayload}`;
 
-    // Aggressively clean the private key
+    // Keep only valid Base64 characters [A-Za-z0-9+/=]
     const cleanedKey = privateKey
-      .replace("-----BEGIN PRIVATE KEY-----", "")
-      .replace("-----END PRIVATE KEY-----", "")
-      .replace(/\\n/g, "") // remove literal backslash-n
-      .replace(/\s/g, "")  // remove actual whitespace/newlines
-      .trim();
+      .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+      .replace(/-----END PRIVATE KEY-----/g, "")
+      .replace(/\\n/g, "") // remove literal \n if exists
+      .replace(/[^A-Za-z0-9+/=]/g, ""); // strip EVERYTHING else (spaces, quotes, etc)
 
-    // Verify it only contains valid Base64 characters
-    if (!/^[A-Za-z0-9+/=]+$/.test(cleanedKey)) {
-        console.error("❌ Private key contains invalid Base64 characters after cleaning");
-        throw new Error("Private key format is invalid (contains non-Base64 characters)");
+    if (!cleanedKey || cleanedKey.length < 100) {
+        console.error("❌ Private key is too short after cleaning:", cleanedKey.length);
+        throw new Error("Private key is missing or invalid");
     }
 
     let binaryDer;
@@ -81,7 +79,7 @@ async function getAccessToken(clientEmail: string, privateKey: string) {
 
     const data = await response.json();
     return data.access_token;
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ getAccessToken detail:", err);
     throw err;
   }
@@ -194,7 +192,7 @@ Deno.serve(async (req: Request) => {
         headers: { 
           "Content-Type": "application/json", 
           "Access-Control-Allow-Origin": "*",
-          "X-Edge-Function-Version": "v9-pk-clean"
+          "X-Edge-Function-Version": "v10-pk-filter"
         },
       }
     );
