@@ -23,15 +23,28 @@ async function getAccessToken(clientEmail: string, privateKey: string) {
     const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
     const message = `${encodedHeader}.${encodedPayload}`;
 
-    // Clean the private key (remove headers/footers and whitespace)
-    const pemHeader = "-----BEGIN PRIVATE KEY-----";
-    const pemFooter = "-----END PRIVATE KEY-----";
-    const pemContents = privateKey
-      .replace(pemHeader, "")
-      .replace(pemFooter, "")
-      .replace(/\s/g, "");
+    // Aggressively clean the private key
+    const cleanedKey = privateKey
+      .replace("-----BEGIN PRIVATE KEY-----", "")
+      .replace("-----END PRIVATE KEY-----", "")
+      .replace(/\\n/g, "") // remove literal backslash-n
+      .replace(/\s/g, "")  // remove actual whitespace/newlines
+      .trim();
 
-    const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
+    // Verify it only contains valid Base64 characters
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanedKey)) {
+        console.error("❌ Private key contains invalid Base64 characters after cleaning");
+        throw new Error("Private key format is invalid (contains non-Base64 characters)");
+    }
+
+    let binaryDer;
+    try {
+        binaryDer = Uint8Array.from(atob(cleanedKey), (c) => c.charCodeAt(0));
+    } catch (e: any) {
+        console.error("❌ atob failed for cleanedKey length:", cleanedKey.length);
+        throw new Error(`Base64 decoding failed: ${e?.message || String(e)}`);
+    }
+
     const key = await crypto.subtle.importKey(
       "pkcs8",
       binaryDer,
@@ -108,8 +121,8 @@ Deno.serve(async (req: Request) => {
         projectId = projectId || sa.project_id;
         clientEmail = clientEmail || sa.client_email;
         privateKey = privateKey || sa.private_key;
-        console.log("📂 Credentials supplemented from FCM_SERVICE_ACCOUNT");
-      } catch (e) {
+        console.log("📂 Credentials supplemented from FCM_SERVICE_ACCOUNT JSON");
+      } catch (_e) {
         console.error("❌ FCM_SERVICE_ACCOUNT is not valid JSON");
       }
     }
@@ -181,11 +194,11 @@ Deno.serve(async (req: Request) => {
         headers: { 
           "Content-Type": "application/json", 
           "Access-Control-Allow-Origin": "*",
-          "X-Edge-Function-Version": "v8-v1-trace"
+          "X-Edge-Function-Version": "v9-pk-clean"
         },
       }
     );
-  } catch (err) {
+  } catch (err: any) {
     console.error("💥 Top-level error:", err);
     return new Response(JSON.stringify({ 
         error: String(err),
