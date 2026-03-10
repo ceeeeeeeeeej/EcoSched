@@ -88,15 +88,23 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const projectId = Deno.env.get("FCM_PROJECT_ID")!;
-    const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL")!;
-    const privateKey = Deno.env.get("FCM_PRIVATE_KEY")!;
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const projectId = Deno.env.get("FCM_PROJECT_ID");
+    const clientEmail = Deno.env.get("FCM_CLIENT_EMAIL");
+    const privateKey = Deno.env.get("FCM_PRIVATE_KEY");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!projectId || !clientEmail || !privateKey) {
-      console.error("❌ FCM V1 credentials missing");
-      return new Response(JSON.stringify({ error: "FCM V1 configuration missing" }), {
+      const missing = [];
+      if (!projectId) missing.push("FCM_PROJECT_ID");
+      if (!clientEmail) missing.push("FCM_CLIENT_EMAIL");
+      if (!privateKey) missing.push("FCM_PRIVATE_KEY");
+      
+      console.error("❌ FCM V1 credentials missing:", missing.join(", "));
+      return new Response(JSON.stringify({ 
+        error: "FCM V1 configuration missing", 
+        missing_keys: missing 
+      }), {
         status: 500,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       });
