@@ -34,7 +34,7 @@
     "type": "git",
     "url": "https://github.com/ecosched/admin-dashboard.git"
   },
-  "homepage": "https://ceeeeeeeeeeej.github.io/EcoSched/",
+  "homepage": "./",
   "dependencies": {
     "@supabase/supabase-js": "^2.101.1"
   }
