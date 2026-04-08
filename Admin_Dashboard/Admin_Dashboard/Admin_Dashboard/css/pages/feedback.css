@@ -175,6 +175,18 @@
 .feedback-title {
     font-weight: 600;
     color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.new-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: #ef4444;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
 
 .feedback-message {

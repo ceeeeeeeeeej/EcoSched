@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/providers/app_state_provider.dart';
+import 'core/providers/language_provider.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/pickup_service.dart';
 import 'core/routes/app_router.dart';
@@ -15,10 +16,22 @@ import 'core/services/reminder_service.dart';
 import 'core/services/bin_service.dart';
 import 'core/services/background_service.dart';
 import 'core/config/supabase_config.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // FLASH: Background handler must initialize Firebase
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Android automatically shows the FCM notification in the tray.
+  // Do NOT call showLocalNotificationFromRemote here — it creates a duplicate.
+  debugPrint("🔔 [PushNotification] Background message received: ${message.messageId}");
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   debugPrint('🚀 FLASH: Starting Ultra-Safe Boot...');
 
@@ -106,7 +119,12 @@ class _UltraSafeBootState extends State<UltraSafeBoot> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.eco, color: Colors.white, size: 64),
+                  Image.asset(
+                    'assets/images/ecosched_logo.png',
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.contain,
+                  ),
                   const SizedBox(height: 32),
                   if (_errorMessage == null) ...[
                     const CircularProgressIndicator(
@@ -181,6 +199,7 @@ class EcoSchedApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => AppStateProvider()),
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => PickupService()),

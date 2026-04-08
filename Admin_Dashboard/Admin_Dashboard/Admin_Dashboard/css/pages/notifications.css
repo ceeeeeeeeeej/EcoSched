@@ -165,10 +165,17 @@
     transition: background-color 0.2s;
     cursor: pointer;
     position: relative;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .notification-item:hover {
     background: #f9fafb;
+    transform: translateX(5px);
+    box-shadow: inset 4px 0 0 0 #10b981;
+}
+
+.notification-item.unread:hover {
+    box-shadow: inset 4px 0 0 0 #3b82f6;
 }
 
 .notification-item.unread {

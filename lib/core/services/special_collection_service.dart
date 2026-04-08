@@ -28,35 +28,39 @@ class SpecialCollectionService extends ChangeNotifier {
         .eq('resident_id', residentId) // Filter by standardized resident_id
         .order('created_at', ascending: false)
         .listen((data) {
-          _specialCollections.clear();
+      _specialCollections.clear();
 
-          _specialCollections.addAll(data.map((doc) {
-            final status = doc['status']?.toString();
-            if (kDebugMode && status == 'approved') {
-              print(
-                  '✅ [ACCURACY CHECK] Special Request ${doc['id']} is now APPROVED!');
-            }
-            return {
-              'id': doc['id'],
-              'residentName': doc['resident_name'],
-              'residentBarangay': doc['resident_barangay'],
-              'residentPurok': doc['resident_purok'],
-              'wasteType': doc['waste_type'],
-              'estimatedQuantity': doc['estimated_quantity'],
-              'pickupLocation': doc['pickup_location'],
-              'message': doc['message'],
-              'status': doc['status'],
-              'scheduledDate': doc['scheduled_date'] != null
-                  ? DateTime.parse(doc['scheduled_date'])
-                  : null,
-              'scheduledTime':
-                  (doc['metadata'] as Map<String, dynamic>?)?['scheduledTime'],
-              'createdAt': DateTime.parse(doc['created_at']),
-            };
-          }));
+      _specialCollections.addAll(data.map((doc) {
+        final status = doc['status']?.toString();
+        if (kDebugMode && status == 'approved') {
+          print(
+              '✅ [ACCURACY CHECK] Special Request ${doc['id']} is now APPROVED!');
+        }
+        return {
+          'id': doc['id'],
+          'residentName': doc['resident_name'],
+          'residentBarangay': doc['resident_barangay'],
+          'residentPurok': doc['resident_purok'],
+          'wasteType': doc['waste_type'],
+          'estimatedQuantity': doc['estimated_quantity'],
+          'pickupLocation': doc['pickup_location'],
+          'residentStreet':
+              (doc['metadata'] as Map<String, dynamic>?)?['residentStreet'],
+          'residentAge':
+              (doc['metadata'] as Map<String, dynamic>?)?['residentAge'],
+          'message': doc['message'],
+          'status': doc['status'],
+          'scheduledDate': doc['scheduled_date'] != null
+              ? DateTime.parse(doc['scheduled_date'])
+              : null,
+          'scheduledTime':
+              (doc['metadata'] as Map<String, dynamic>?)?['scheduledTime'],
+          'createdAt': DateTime.parse(doc['created_at']),
+        };
+      }));
 
-          notifyListeners();
-        });
+      notifyListeners();
+    });
   }
 
   /// Create new request
@@ -64,6 +68,8 @@ class SpecialCollectionService extends ChangeNotifier {
     required String residentName,
     required String residentBarangay,
     required String residentPurok,
+    required String residentStreet,
+    required String residentAge,
     required String wasteType,
     required String estimatedQuantity,
     required String pickupLocation,
@@ -82,6 +88,10 @@ class SpecialCollectionService extends ChangeNotifier {
         'estimated_quantity': estimatedQuantity,
         'pickup_location': pickupLocation,
         'message': message,
+        'metadata': {
+          'residentAge': residentAge,
+          'residentStreet': residentStreet,
+        },
         'status': 'pending',
         'resident_id': residentId, // Use standardized resident_id
         'created_at': DateTime.now().toIso8601String(),
@@ -89,6 +99,7 @@ class SpecialCollectionService extends ChangeNotifier {
 
       return {'success': true};
     } catch (e) {
+      if (kDebugMode) print('Error requesting special collection: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -120,31 +131,35 @@ class SpecialCollectionService extends ChangeNotifier {
         .stream(primaryKey: ['id'])
         .order('created_at', ascending: false)
         .listen((data) {
-          if (kDebugMode) print('📩 Supabase Stream Data: $data');
-          _specialCollections.clear();
+      if (kDebugMode) print('📩 Supabase Stream Data: $data');
+      _specialCollections.clear();
 
-          _specialCollections.addAll(data.map((doc) {
-            return {
-              'id': doc['id'],
-              'residentName': doc['resident_name'],
-              'residentBarangay': doc['resident_barangay'],
-              'residentPurok': doc['resident_purok'],
-              'wasteType': doc['waste_type'],
-              'estimatedQuantity': doc['estimated_quantity'],
-              'pickupLocation': doc['pickup_location'],
-              'message': doc['message'],
-              'status': doc['status'],
-              'scheduledDate': doc['scheduled_date'] != null
-                  ? DateTime.tryParse(doc['scheduled_date'].toString())
-                  : null,
-              'createdAt': doc['created_at'] != null
-                  ? DateTime.tryParse(doc['created_at'].toString())
-                  : DateTime.now(),
-            };
-          }).toList());
+      _specialCollections.addAll(data.map((doc) {
+        return {
+          'id': doc['id'],
+          'residentName': doc['resident_name'],
+          'residentBarangay': doc['resident_barangay'],
+          'residentPurok': doc['resident_purok'],
+          'residentStreet':
+              (doc['metadata'] as Map<String, dynamic>?)?['residentStreet'],
+          'residentAge':
+              (doc['metadata'] as Map<String, dynamic>?)?['residentAge'],
+          'wasteType': doc['waste_type'],
+          'estimatedQuantity': doc['estimated_quantity'],
+          'pickupLocation': doc['pickup_location'],
+          'message': doc['message'],
+          'status': doc['status'],
+          'scheduledDate': doc['scheduled_date'] != null
+              ? DateTime.tryParse(doc['scheduled_date'].toString())
+              : null,
+          'createdAt': doc['created_at'] != null
+              ? DateTime.tryParse(doc['created_at'].toString())
+              : DateTime.now(),
+        };
+      }).toList());
 
-          notifyListeners();
-        });
+      notifyListeners();
+    });
   }
 
   /// Admin update status

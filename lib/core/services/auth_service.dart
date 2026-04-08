@@ -25,11 +25,15 @@ class AuthService extends ChangeNotifier {
 
   // For residents, consider them "authenticated" if they have location set
   bool get isResidentWithLocation =>
-      _user != null && _user!['role'] == 'resident';
+      _user != null && _user!['role'] == 'resident' && _user!['barangay'] != null;
+
+  bool get hasBarangaySelected => _user?['barangay'] != null;
 
   static const String _prefKeyBarangay = 'resident_barangay';
   static const String _prefKeyPurok = 'resident_purok';
   static const String _prefKeyUserId = 'resident_user_id';
+  static const String _prefKeyEmail = 'resident_email';
+  static const String _prefKeyPhone = 'resident_phone';
   static const String _prefKeyDeviceId = 'last_device_id';
 
   AuthService() {
@@ -81,7 +85,11 @@ class AuthService extends ChangeNotifier {
       }
     }
 
+    // Finalize initialization after ALL loading is done
     _isAuthCheckComplete = true;
+    if (kDebugMode) {
+      print('🚀 FLASH: AuthService init complete. Authenticated: $isAuthenticated, Resident with Location: $isResidentWithLocation');
+    }
     notifyListeners();
   }
 
@@ -90,6 +98,8 @@ class AuthService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final barangay = prefs.getString(_prefKeyBarangay);
       final purok = prefs.getString(_prefKeyPurok);
+      final email = prefs.getString(_prefKeyEmail);
+      final phone = prefs.getString(_prefKeyPhone);
       String? userId = prefs.getString(_prefKeyUserId);
 
       // If no persisted userId but we have a fallback (device ID), use it
@@ -102,15 +112,52 @@ class AuthService extends ChangeNotifier {
           barangay: barangay,
           purok: purok,
           userId: userId,
+          email: email,
+          phone: phone,
           persist: false,
         );
       } else if (userId != null) {
-        // Establish guest session even without location
-        _user = {
-          'uid': userId,
-          'role': 'resident',
-          'displayName': 'Guest Resident',
-        };
+        // Fallback: Check database for existing profile based on userId (device ID)
+        try {
+          final snapshot = await SupabaseConfig.client
+              .from(SupabaseConfig.usersTable)
+              .select()
+              .eq('id', userId)
+              .maybeSingle();
+
+          if (snapshot != null &&
+              snapshot['barangay'] != null &&
+              snapshot['purok'] != null) {
+            final dbBarangay = snapshot['barangay'] as String;
+            final dbPurok = snapshot['purok'] as String;
+            final dbEmail = snapshot['email'] as String?;
+            final dbPhone = snapshot['phone'] as String?;
+
+            setResidentLocation(
+              barangay: dbBarangay,
+              purok: dbPurok,
+              userId: userId,
+              email: dbEmail,
+              phone: dbPhone,
+              persist: true, // Persist back to local storage
+            );
+          } else {
+            // Establish guest session even without location
+            _user = {
+              'uid': userId,
+              'role': 'resident',
+              'displayName': 'Guest Resident',
+            };
+          }
+        } catch (e) {
+          if (kDebugMode) print('Error checking resident DB profile: $e');
+          // Establish guest session as safety
+          _user = {
+            'uid': userId,
+            'role': 'resident',
+            'displayName': 'Guest Resident',
+          };
+        }
       }
     } catch (e) {
       if (kDebugMode) print('Error loading resident location: $e');
@@ -118,12 +165,14 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> _persistResidentLocation(
-      String barangay, String purok, String userId) async {
+      String barangay, String purok, String userId, {String? email, String? phone}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefKeyBarangay, barangay);
       await prefs.setString(_prefKeyPurok, purok);
       await prefs.setString(_prefKeyUserId, userId);
+      if (email != null) await prefs.setString(_prefKeyEmail, email);
+      if (phone != null) await prefs.setString(_prefKeyPhone, phone);
       if (_lastDeviceId != null) {
         await prefs.setString(_prefKeyDeviceId, _lastDeviceId!);
       }
@@ -138,6 +187,8 @@ class AuthService extends ChangeNotifier {
       await prefs.remove(_prefKeyBarangay);
       await prefs.remove(_prefKeyPurok);
       await prefs.remove(_prefKeyUserId);
+      await prefs.remove(_prefKeyEmail);
+      await prefs.remove(_prefKeyPhone);
       await prefs.remove(_prefKeyDeviceId);
     } catch (e) {
       if (kDebugMode) print('Error clearing resident persistence: $e');
@@ -390,6 +441,8 @@ class AuthService extends ChangeNotifier {
     required String barangay,
     required String purok,
     String? userId,
+    String? email,
+    String? phone,
     String? currentLocation,
     bool persist = true,
   }) {
@@ -417,6 +470,8 @@ class AuthService extends ChangeNotifier {
       'role': 'resident',
       'barangay': barangay,
       'purok': purok,
+      'email': email,
+      'phone': phone,
       'location': locationString,
       'serviceArea': serviceArea,
       if (currentLocation != null && currentLocation.isNotEmpty)
@@ -424,17 +479,18 @@ class AuthService extends ChangeNotifier {
     };
 
     if (persist) {
-      _persistResidentLocation(barangay, purok, effectiveUserId);
+      _persistResidentLocation(barangay, purok, effectiveUserId, email: email, phone: phone);
     }
-
+    
     notifyListeners();
   }
-
   /// Automatically register a resident in the database for tracking in the Admin Dashboard
   Future<void> registerResidentInDatabase({
     required String barangay,
     required String userId,
     String? purok,
+    String? email,
+    String? phone,
   }) async {
     try {
       if (kDebugMode) {
@@ -446,6 +502,8 @@ class AuthService extends ChangeNotifier {
       // Upsert user record for resident tracking
       await SupabaseConfig.client.from(SupabaseConfig.usersTable).upsert({
         'id': userId,
+        'email': email,
+        'phone': phone,
         'first_name': 'Guest',
         'last_name': 'Resident',
         'role': 'resident',
@@ -490,12 +548,6 @@ class AuthService extends ChangeNotifier {
     }
     if (value.contains('dayo-an') || value.contains('dayo-ay')) {
       return 'dayo-an';
-    }
-    if (value.contains('mahayag')) {
-      return 'mahayag';
-    }
-    if (value.contains('visitor')) {
-      return 'visitors';
     }
     // Return the first part if it's a comma separated string (e.g. "Victoria, Tago" -> "victoria")
     return value.split(',')[0].trim();
@@ -622,13 +674,15 @@ class AuthService extends ChangeNotifier {
   void goHome(BuildContext context) {
     if (isCollector()) {
       Navigator.of(context).pushNamedAndRemoveUntil(
-          SupabaseConfig.collectorRole == 'collector'
-              ? '/collector'
-              : '/resident',
-          (route) => false);
+          '/collector', (route) => false);
     } else {
-      Navigator.of(context)
-          .pushNamedAndRemoveUntil('/resident', (route) => false);
+      if (hasBarangaySelected) {
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/resident', (route) => false);
+      } else {
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/resident/location', (route) => false);
+      }
     }
   }
 

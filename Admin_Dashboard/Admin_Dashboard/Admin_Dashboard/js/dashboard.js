@@ -11,6 +11,7 @@ let statsUnsubscribe = null;
 let activitiesUnsubscribe = null;
 let notificationsUnsubscribe = null;
 let currentSelectedBin = null;
+let notifiedBins = new Set(); // Track bins already notified to avoid spam
 
 // Initialize the dashboard
 document.addEventListener('DOMContentLoaded', function () {
@@ -92,6 +93,7 @@ async function initializeDashboard() {
     loadDashboardData();
     refreshSystemStatus(); // Load initial status
     initializeNotifications(); // Load notifications
+    initializeSidebarNotifications(); // Load sidebar dots
 
     // Refresh system status every 60 seconds
     setInterval(refreshSystemStatus, 60000);
@@ -164,6 +166,18 @@ function initializeNavigationHandlers() {
         userLogoutBtn.addEventListener('click', logout);
     }
 
+    // Notification dropdown toggle
+    const notificationBtn = document.getElementById('notificationBtn');
+    const notificationDropdown = document.getElementById('notificationDropdown');
+    if (notificationBtn && notificationDropdown) {
+        notificationBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            notificationDropdown.classList.toggle('show');
+            // Close user menu if open
+            if (userMenuDropdown) userMenuDropdown.classList.remove('show');
+        });
+    }
+
 
     const markAllReadBtn = document.getElementById('markAllRead');
     if (markAllReadBtn) {
@@ -206,13 +220,11 @@ function initializeRealtimeDashboard() {
                 const mappedStats = {
                     totalUsers: liveStats.totalUsers ?? 0,
                     adminUsers: liveStats.adminUsers ?? 0,
-                    totalCollectorsBreakdown: liveStats.totalCollectors ?? 0,
-                    collectorUsers: liveStats.totalCollectors ?? 0,
                     municipalUsers: 0, // Placeholder
-                    activeCollectorsDetail: liveStats.activeCollectors ?? 0,
-                    activeCollectors: liveStats.activeCollectors ?? 0,
+                    activeCollectorsDetail: 0,
+                    activeCollectors: 0,
                     onRouteCollectors: 0, // Placeholder
-                    availableCollectors: liveStats.activeCollectors ?? 0, // Fallback
+                    availableCollectors: 0, // Fallback
                     wasteCollected: '0 level',
                     iotSensors: liveStats.iotUsers ?? 0,
                     serviceAreas: Array.isArray(liveStats.serviceAreas) ? liveStats.serviceAreas.length : 0,
@@ -241,69 +253,7 @@ function initializeRealtimeDashboard() {
             });
         }
 
-        // Realtime collector session monitoring
-        if (realtime && realtime.subscribeToCollectors) {
-            realtime.subscribeToCollectors(async (collectors, payload) => {
-                // If this is an update and status changed to 'on-route'
-                if (payload && payload.eventType === 'UPDATE') {
-                    const oldData = payload.old;
-                    const newData = payload.new;
 
-                    if (newData.status === 'on-route' && (!oldData || oldData.status !== 'on-route')) {
-                        let driverName = newData.driver_name || newData.driverName;
-
-                        // If driverName is missing, try to find it in the full collectors list or fetch user
-                        if (!driverName) {
-                            const collector = collectors.find(c => c.id === newData.id || c.collectorId === newData.collector_id);
-                            if (collector) {
-                                driverName = collector.driverName || collector.driver_name;
-                            }
-                        }
-
-                        // If still missing, try to fetch user name if user_id is present
-                        if (!driverName && newData.user_id && dbService && dbService.getUserById) {
-                            try {
-                                const { data: userData } = await dbService.getUserById(newData.user_id);
-                                if (userData) {
-                                    driverName = userData.fullName || userData.firstName;
-                                }
-                            } catch (e) {
-                                console.error('Error fetching user for notification:', e);
-                            }
-                        }
-
-                        // Fallback
-                        if (!driverName) driverName = 'A collector';
-
-                        const vehicleId = newData.vehicle_id || newData.vehicleId || 'truck';
-
-                        const title = '🚛 Collector Session Started';
-                        const message = `${driverName} has started their collection session with vehicle ${vehicleId}.`;
-
-                        // 1. Create persistent notification in DB
-                        // DISABLED: Mobile app already creates this notification. Prevents duplicates.
-                        /*
-                        if (dbService && dbService.createNotification) {
-                            dbService.createNotification({
-                                title: title,
-                                message: message,
-                                type: 'collector',
-                                priority: 'medium'
-                            }).then(({ error }) => {
-                                if (error) console.error('❌ Failed to persist session notification:', error);
-                                else console.log('✅ Collector session notification persisted');
-                            });
-                        }
-                        */
-
-                        // 2. Show immediate toast for current user
-                        if (typeof showNotification === 'function') {
-                            showNotification(message, 'info');
-                        }
-                    }
-                }
-            });
-        }
 
         // Realtime recent activity from user_activities
         if (realtime && realtime.subscribeToActivities) {
@@ -359,7 +309,7 @@ function initializeRealtimeDashboard() {
             <div class="notification-item">
                 <strong>New Resident Feedback</strong>
                 <p>${item.feedback_text || 'New feedback submitted'}</p>
-                <small>${new Date(item.created_at).toLocaleString()}</small>
+                <small>${new Date(item.created_at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, month: 'short', day: 'numeric' })}</small>
             </div>
         `)
                     .join('');
@@ -415,15 +365,41 @@ function initializeRealtimeDashboard() {
                     updateBadge();
                     renderDropdown();
                     if (payload) triggerToast(payload, 'Feedback');
+
+                    // Update dashboard stats
+                    const unreadFeedback = feedbackItems.filter(f => !f.read || (f.status || 'new').toLowerCase() === 'new').length;
+                    updateStatsDisplay({ feedbackCount: unreadFeedback });
+                    
+                    // Recalculate total notifications (New Updates)
+                    refreshTotalNotifications();
                 });
             }
 
-            if (realtime.subscribeToGenericNotifications) {
-                realtime.subscribeToGenericNotifications((items, payload) => {
+            if (realtime.subscribeToSpecialCollections) {
+                realtime.subscribeToSpecialCollections((items, payload) => {
+                    const activeSpecials = items.filter(s => 
+                        !['completed', 'cancelled'].includes((s.status || '').toLowerCase())
+                    ).length;
+                    updateStatsDisplay({ specialCount: activeSpecials });
+                    refreshTotalNotifications();
+                    if (payload) triggerToast(payload, 'Special Collections');
+                });
+            }
+
+            if (realtime.subscribeToNotifications) {
+                realtime.subscribeToNotifications((items, payload) => {
                     genericItems = Array.isArray(items) ? items : [];
                     updateBadge();
                     renderDropdown();
                     if (payload) triggerToast(payload, 'System');
+
+                    // Update dashboard count for bin alerts (specialCount now handled above)
+                    const unreadAlerts = genericItems.filter(n => n.type === 'bin_alert' && !n.read).length;
+                    updateStatsDisplay({ 
+                        collectorCount: unreadAlerts
+                    });
+                    
+                    refreshTotalNotifications();
                 });
             }
 
@@ -439,9 +415,8 @@ function initializeRealtimeDashboard() {
                             // Calculate initial stats
                             const bins = data;
                             if (bins && Array.isArray(bins)) {
-                                const totalSensors = bins.length;
-                                const highFillCount = bins.filter(b => (b.fill_level || 0) >= 70).length;
                                 const now = new Date();
+                                const totalSensors = bins.length;
                                 const offlineCount = bins.filter(b => {
                                     if (b.status === 'inactive') return true;
                                     if (!b.updated_at) return true;
@@ -449,10 +424,11 @@ function initializeRealtimeDashboard() {
                                     const diffMinutes = (now - lastUpdate) / 1000 / 60;
                                     return diffMinutes > 2; // Consider offline if no update in 2 minutes
                                 }).length;
+                                const onlineCount = totalSensors - offlineCount;
 
                                 updateStatsDisplay({
                                     iotSensors: totalSensors,
-                                    highFillSensors: highFillCount,
+                                    onlineSensors: onlineCount,
                                     offlineSensors: offlineCount
                                 });
                             }
@@ -473,8 +449,7 @@ function initializeRealtimeDashboard() {
                     // Calculate sensor network stats
                     if (bins && Array.isArray(bins)) {
                         const totalSensors = bins.length;
-                        const highFillCount = bins.filter(b => (b.fill_level || 0) >= 70).length;
-                        // Consider offline if updated_at is older than 1 hour or status is inactive
+                        // Consider offline if updated_at is older than 2 minutes or status is inactive
                         const now = new Date();
                         const offlineCount = bins.filter(b => {
                             if (b.status === 'inactive') return true;
@@ -483,11 +458,12 @@ function initializeRealtimeDashboard() {
                             const diffMinutes = (now - lastUpdate) / 1000 / 60;
                             return diffMinutes > 2; // Consider offline if no update in 2 minutes
                         }).length;
+                        const onlineCount = totalSensors - offlineCount;
 
                         // Update the stat card if functions exist
                         updateStatsDisplay({
                             iotSensors: totalSensors,
-                            highFillSensors: highFillCount,
+                            onlineSensors: onlineCount,
                             offlineSensors: offlineCount
                         });
                     }
@@ -527,24 +503,10 @@ function setupEventListeners() {
     if (sidebarClose) {
         sidebarClose.addEventListener('click', closeSidebar);
     }
-    const markAllReadBtn = document.getElementById('markAllRead');
-    if (markAllReadBtn) {
-        markAllReadBtn.addEventListener('click', markAllNotificationsAsRead);
-    }
-
-    const viewAllNotificationsLink = document.getElementById('viewAllNotifications');
-    if (viewAllNotificationsLink) {
-        viewAllNotificationsLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            navigateToPage('notifications');
-            closeNotificationDropdown();
-        });
-    }
 
     // Close menus on outside click
     document.addEventListener('click', (e) => {
         handleUserMenuOutsideClick(e);
-        handleNotificationOutsideClick(e);
     });
 
     // User menu
@@ -624,6 +586,7 @@ async function loadAdminProfile() {
                         localStorage.setItem('userData', JSON.stringify(profileToStore));
 
                         adminProfile = {
+                            id: currentUser.id,
                             fullName: profileToStore.fullName,
                             role: profileToStore.role,
                             email: profileToStore.email,
@@ -646,7 +609,9 @@ function getStoredAdminProfile() {
         const rawData = localStorage.getItem('userData');
         if (rawData) {
             const parsed = JSON.parse(rawData);
+            const id = parsed.uid || parsed.id || parsed.userId || null;
             return {
+                id: id ? String(id).toLowerCase() : null,
                 fullName: parsed.fullName || parsed.name || parsed.displayName || parsed.email || 'Admin User',
                 role: parsed.role || 'System Administrator',
                 email: parsed.email || 'admin@ecosched.com',
@@ -723,7 +688,8 @@ function formatLastLogin(value) {
         day: 'numeric',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: true
     });
 }
 
@@ -755,8 +721,9 @@ function navigateToPage(page) {
         const titles = {
             'dashboard': 'Dashboard',
             'users': 'User Management',
-            'collectors': 'Collector Management',
+
             'bins': 'Sensor Monitoring',
+            'bin-locations': 'Bin Locations Map',
             'routes': 'Route Management',
             'schedules': 'Schedule Management',
             'special-collections': 'Special Collections',
@@ -793,8 +760,9 @@ function navigateToPage(page) {
         // Load the specific page in iframe
         const pageUrls = {
             'users': 'users.html',
-            'collectors': 'collectors.html',
+
             'bins': 'bins.html',
+            'bin-locations': 'bin-locations.html',
             'schedules': 'schedules.html',
             'special-collections': 'special-collections.html',
             'analytics': 'analytics.html',
@@ -827,9 +795,12 @@ async function loadDashboardData() {
             activeCollectorsDetail: 0,
             wasteCollected: '0 level',
             serviceAreas: 0,
-            residentUsers: 0,
-            victoriaResidents: 0,
-            dayoanResidents: 0
+            onlineSensors: 0,
+            offlineSensors: 0,
+            totalNotifications: 0,
+            feedbackCount: 0,
+            specialCount: 0,
+            collectorCount: 0
         };
 
         // Try to load real stats from Firestore
@@ -847,20 +818,61 @@ async function loadDashboardData() {
                     stats.iotSensors = data.iotUsers ?? stats.iotSensors;
                     stats.serviceAreas = Array.isArray(data.serviceAreas) ? data.serviceAreas.length : stats.serviceAreas;
                     stats.residentUsers = data.residentUsers ?? 0;
-                    stats.victoriaResidents = data.victoriaResidents ?? 0;
-                    stats.dayoanResidents = data.dayoanResidents ?? 0;
+                    stats.onlineSensors = data.onlineSensors ?? 0;
+                    stats.offlineSensors = data.offlineSensors ?? 0;
                 }
             }
         } catch (statsError) {
-            console.warn('Failed to load live stats, falling back to mock data:', statsError);
-            // Mock fallback for local development
-            stats = {
-                totalUsers: 0,
-                activeCollectors: 0,
-                routesToday: 0,
-                wasteCollected: '0 level',
-                serviceAreas: 0
-            };
+            console.warn('Failed to load live stats from getSystemStats:', statsError);
+        }
+
+        // Fetch Notification Stats separately
+        // Fetch Notification Stats + actual Feedback/Special
+        try {
+            let actualFeedbackCount = 0;
+            if (dbService && dbService.getResidentFeedback) {
+                const { data: feedbackData } = await dbService.getResidentFeedback(100);
+                if (feedbackData) {
+                    actualFeedbackCount = feedbackData.filter(f => !f.read || (f.status || 'new').toLowerCase() === 'new').length;
+                }
+            }
+
+            let actualSpecialCount = 0;
+            if (dbService && dbService.getSpecialCollections) {
+                const { data: specialData } = await dbService.getSpecialCollections();
+                if (specialData) {
+                    actualSpecialCount = specialData.filter(s => 
+                        !['completed', 'cancelled'].includes((s.status || '').toLowerCase())
+                    ).length;
+                }
+            }
+
+            if (dbService && dbService.getNotifications) {
+                const { data: notifications } = await dbService.getNotifications(100, adminProfile?.id);
+                if (notifications) {
+                    stats.feedbackCount = actualFeedbackCount; // Use actual feedback table
+                    stats.specialCount = actualSpecialCount; // Use actual special table
+                    stats.collectorCount = notifications.filter(n => n.type === 'bin_alert' && !n.read).length;
+                    
+                    // Total Notifications = Feedback + Special + Alerts
+                    stats.totalNotifications = stats.feedbackCount + stats.specialCount + stats.collectorCount;
+                    
+                    // Correct Today's count logic
+                    const todayStr = new Date().toDateString();
+                    stats.todayNotifs = notifications.filter(n => {
+                        if (!n.createdAt) return false;
+                        let ts = n.createdAt;
+                        if (typeof ts === 'string' && !ts.includes('Z') && !ts.includes('+')) {
+                            ts += 'Z';
+                        }
+                        return new Date(ts).toDateString() === todayStr;
+                    }).length;
+                }
+                // Refresh badge count for accuracy
+                await updateBadge();
+            }
+        } catch (notiError) {
+            console.error('Error fetching dashboard notification stats:', notiError);
         }
 
         updateStatsDisplay(stats);
@@ -886,7 +898,6 @@ function updateStatsDisplay(stats) {
         'adminUsers': document.getElementById('adminUsers'),
         'totalCollectorsBreakdown': document.getElementById('totalCollectorsBreakdown'),
         'collectorUsers': document.getElementById('collectorUsers'),
-        'municipalUsers': document.getElementById('municipalUsers'),
         'activeCollectorsDetail': document.getElementById('activeCollectorsDetail'),
         'activeCollectors': document.getElementById('activeCollectors'),
         'onRouteCollectors': document.getElementById('onRouteCollectors'),
@@ -896,9 +907,12 @@ function updateStatsDisplay(stats) {
         'serviceAreas': document.getElementById('serviceAreas'),
         'highFillSensors': document.getElementById('highFillSensors'),
         'offlineSensors': document.getElementById('offlineSensors'),
-        'residentUsers': document.getElementById('residentUsers'),
-        'victoriaResidents': document.getElementById('victoriaResidents'),
-        'dayoanResidents': document.getElementById('dayoanResidents')
+        'onlineSensors': document.getElementById('onlineSensors'),
+        'totalNotifications': document.getElementById('totalNotifications'),
+        'feedbackCount': document.getElementById('feedbackCount'),
+        'specialCount': document.getElementById('specialCount'),
+        'collectorCount': document.getElementById('collectorCount'),
+        'todayNotifs': document.getElementById('todayCount') // Correct ID for dashboard widget
     };
 
     Object.keys(statElements).forEach(key => {
@@ -906,6 +920,22 @@ function updateStatsDisplay(stats) {
             statElements[key].textContent = stats[key];
         }
     });
+}
+
+// Recalculate and update the total "New Updates" count (sum of all notification sub-types)
+function refreshTotalNotifications() {
+    const feedbackEl = document.getElementById('feedbackCount');
+    const specialEl = document.getElementById('specialCount');
+    const collectorEl = document.getElementById('collectorCount');
+    const totalEl = document.getElementById('totalNotifications');
+    
+    if (!totalEl) return;
+    
+    const feedback = parseInt(feedbackEl?.textContent || '0');
+    const special = parseInt(specialEl?.textContent || '0');
+    const collector = parseInt(collectorEl?.textContent || '0');
+    
+    totalEl.textContent = feedback + special + collector;
 }
 
 // Update activities display
@@ -1152,141 +1182,112 @@ function handleSearch(e) {
     applyDashboardSearchFilter(searchTerm);
 }
 
-// Toggle notifications
-function toggleNotifications(event) {
-    if (event) event.stopPropagation();
-    const dropdown = document.getElementById('notificationDropdown');
-    if (dropdown) {
-        dropdown.classList.toggle('show');
-        if (dropdown.classList.contains('show')) {
-            closeUserMenu();
-            loadDropdownNotifications();
-        }
-    }
-}
-
-function closeNotificationDropdown() {
-    const dropdown = document.getElementById('notificationDropdown');
-    if (dropdown) {
-        dropdown.classList.remove('show');
-    }
-}
-
-function handleNotificationOutsideClick(event) {
-    const menu = document.getElementById('notificationMenu');
-    if (menu && !menu.contains(event.target)) {
-        closeNotificationDropdown();
-    }
-}
-
 // Notification Logic
 async function initializeNotifications() {
     console.log('🔔 Initializing notifications...');
 
-    // Load initial batch
-    await loadDropdownNotifications();
-
     // Subscribe to real-time updates
     if (realtime && realtime.subscribeToNotifications && !notificationsUnsubscribe) {
-        notificationsUnsubscribe = realtime.subscribeToNotifications((items) => {
+        notificationsUnsubscribe = realtime.subscribeToNotifications(async (items) => {
             console.log('🔔 Notification update received:', items);
             updateNotificationUI(items);
-        });
+            updateSidebarDots(items);
+            // Also update the badge count directly from DB for accuracy
+            await updateBadge();
+        }, adminProfile?.id);
     }
+    
+    // Initial badge update
+    await updateBadge();
 }
 
-async function loadDropdownNotifications() {
+// Expose updateBadge globally for iframes
+window.updateBadge = async function() {
     try {
-        if (dbService && dbService.getGenericNotifications) {
-            const { data, error } = await dbService.getGenericNotifications(10);
-            if (error) throw error;
-            updateNotificationUI(data || []);
+        const adminId = adminProfile?.id || getStoredAdminProfile()?.id;
+        if (!adminId) {
+            console.warn('⚠️ No admin ID available for badge update');
+            return;
+        }
+
+        if (dbService && dbService.getNotificationCounts) {
+            const { unread } = await dbService.getNotificationCounts(adminId);
+            const badge = document.getElementById('notificationBadge');
+            if (badge) {
+                badge.textContent = unread;
+                badge.style.display = unread > 0 ? 'block' : 'none';
+            }
         }
     } catch (error) {
-        console.error('Error loading notifications:', error);
+        console.error('Error updating badge:', error);
+    }
+};
+
+const updateBadge = window.updateBadge;
+
+async function initializeSidebarNotifications() {
+    console.log('📊 Initializing sidebar notifications...');
+    try {
+        if (dbService && dbService.getNotifications) {
+            const { data, error } = await dbService.getNotifications(100, adminProfile?.id);
+            if (!error && data) {
+                updateSidebarDots(data);
+            }
+        }
+    } catch (error) {
+        console.error('Error initializing sidebar dots:', error);
     }
 }
 
-function updateNotificationUI(notifications) {
-    const badge = document.getElementById('notificationBadge');
-    const list = document.getElementById('dropdownNotificationList');
+function updateSidebarDots(notifications) {
+    if (!notifications) return;
 
-    if (!badge || !list) return;
-
-    const unreadCount = notifications.filter(n => !n.read).length;
-    badge.textContent = unreadCount;
-    badge.style.display = unreadCount > 0 ? 'block' : 'none';
-
-    if (notifications.length === 0) {
-        list.innerHTML = `
-            <div class="empty-notifications">
-                <i class="fas fa-bell-slash"></i>
-                <p>No new notifications</p>
-            </div>
-        `;
-        return;
-    }
-
-    list.innerHTML = notifications.slice(0, 5).map(noti => `
-        <div class="notification-item ${!noti.read ? 'unread' : ''}" onclick="handleNotificationClick('${noti.id}')">
-            <div class="noti-icon ${noti.type || 'info'}">
-                <i class="fas ${getNotiIcon(noti.type)}"></i>
-            </div>
-            <div class="noti-content">
-                <div class="noti-title">${noti.title || 'Notification'}</div>
-                <div class="noti-message">${noti.message || ''}</div>
-                <div class="noti-time">${formatNotificationTime(noti.createdAt)}</div>
-            </div>
-        </div>
-    `).join('');
-}
-
-function getNotiIcon(type) {
-    const icons = {
-        'success': 'fa-check-circle',
-        'error': 'fa-exclamation-circle',
-        'warning': 'fa-exclamation-triangle',
-        'info': 'fa-info-circle'
+    const unreadNotifications = notifications.filter(n => !n.read);
+    
+    // Select sidebar menu items
+    const menuItems = {
+        'users': document.querySelector('.menu-item[data-page="users"]'),
+        'special-collections': document.querySelector('.menu-item[data-page="special-collections"]'),
+        'feedback': document.querySelector('.menu-item[data-page="feedback"]'),
+        'notifications': document.querySelector('.menu-item[data-page="notifications"]')
     };
-    return icons[type] || 'fa-info-circle';
-}
 
-function formatNotificationTime(timestamp) {
-    if (!timestamp) return '';
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now - date) / 1000);
-
-    if (diffInSeconds < 60) return 'Just now';
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    return date.toLocaleDateString();
-}
-
-async function handleNotificationClick(id) {
-    try {
-        if (dbService && dbService.updateNotification) {
-            await dbService.updateNotification(id, { read: true });
-            // The real-time subscription will handle the UI update
+    // Reset all dots
+    Object.values(menuItems).forEach(item => {
+        if (item) {
+            item.classList.remove('has-notification');
+            let dot = item.querySelector('.notification-dot');
+            if (!dot) {
+                dot = document.createElement('span');
+                dot.className = 'notification-dot';
+                item.appendChild(dot);
+            }
         }
-    } catch (error) {
-        console.error('Error marking notification as read:', error);
+    });
+
+    // Apply dots based on unread notification types
+    unreadNotifications.forEach(noti => {
+        const type = noti.type;
+        if (type === 'new_user' && menuItems['users']) {
+            menuItems['users'].classList.add('has-notification');
+        } else if (type === 'special_collection' && menuItems['special-collections']) {
+            menuItems['special-collections'].classList.add('has-notification');
+        } else if (type === 'feedback' && menuItems['feedback']) {
+            menuItems['feedback'].classList.add('has-notification');
+        } else if (type === 'bin_alert' || type === 'alert') {
+            // General notifications for bin alerts
+            if (menuItems['notifications']) {
+                menuItems['notifications'].classList.add('has-notification');
+            }
+        }
+    });
+
+    // General notifications dot (if any unread exists at all)
+    if (unreadNotifications.length > 0 && menuItems['notifications']) {
+        menuItems['notifications'].classList.add('has-notification');
     }
 }
 
-async function markAllNotificationsAsRead() {
-    try {
-        const { data: notifications } = await dbService.getGenericNotifications(50);
-        const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
-
-        if (unreadIds.length === 0) return;
-
-        await Promise.all(unreadIds.map(id => dbService.updateNotification(id, { read: true })));
-        showNotification('All notifications marked as read', 'success');
-    } catch (error) {
-        console.error('Error marking all as read:', error);
-    }
-}
 
 function applyDashboardSearchFilter(term) {
     const normalized = (term || '').toLowerCase().trim();
@@ -1494,6 +1495,82 @@ notificationStyles.textContent = `
 `;
 document.head.appendChild(notificationStyles);
 
+/**
+ * Triggers a push notification to collectors in the bin's barangay
+ * when a bin is detected as full (>= 60%).
+ */
+async function triggerBinFullNotification(bin) {
+    const rawAddress = bin.address || '';
+    // Extract "Victoria" from "Barangay Victoria"
+    const barangay = rawAddress.replace(/Barangay\s+/i, '').trim();
+
+    if (!barangay || barangay.toLowerCase() === 'no location' || barangay === '') {
+        console.warn(`⚠️ [Bin Alert] Skipping notification for ${bin.bin_id}: No valid barangay address.`);
+        return;
+    }
+
+    console.log(`🚀 [Bin Alert] Finding collectors in ${barangay} for bin ${bin.bin_id}`);
+
+    try {
+        const SUPABASE_URL = 'https://bfqktqtsjchbmopafgzf.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_ucEKoeLHhbxBVtzDABvVIg_eKIhIQ31';
+
+        // 1. Resolve collectors for this barangay locally in the dashboard
+        const { data: collectors, error: userError } = await supabase
+            .from(TABLES.USERS)
+            .select('id')
+            .eq('barangay', barangay)
+            .eq('role', 'collector');
+
+        if (userError || !collectors || collectors.length === 0) {
+            console.warn(`⚠️ [Bin Alert] No collectors found in database for barangay: ${barangay}`);
+            if (userError) console.error('Database error:', userError);
+            return;
+        }
+
+        console.log(`📍 [Bin Alert] Found ${collectors.length} collector(s) to notify.`);
+
+        for (const collector of collectors) {
+            // 2. Create persistent record in user_notifications (for the app's alert list)
+            supabase.from(TABLES.NOTIFICATIONS).insert({
+                user_id: collector.id,
+                barangay: barangay,
+                title: '🚨 Bin Full Alert',
+                message: `In ${barangay}, bin ${bin.bin_id} is full! Please collect waste to prevent overflow.`,
+                type: 'alert',
+                is_read: false,
+                created_at: new Date().toISOString()
+            }).then(({ error }) => {
+                if (error) console.error(`❌ [Bin Alert] DB insert failed for ${collector.id}:`, error);
+                else console.log(`✅ [Bin Alert] DB record created for ${collector.id}`);
+            });
+
+            // 3. Send Push via Edge Function using resident_id (compatibility mode)
+            fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({
+                    resident_id: collector.id, // Mandatory key for the Edge Function lookup
+                    title: '🚨 Bin Full Alert',
+                    body: `In ${barangay}, bin ${bin.bin_id} is full! Please collect waste to prevent overflow.`,
+                }),
+            }).then(async (res) => {
+                const resData = await res.json();
+                console.log(`📲 [Bin Alert] Push sent to ${collector.id}:`, resData);
+            }).catch(e => console.error(`💥 [Bin Alert] Push failed for ${collector.id}:`, e));
+        }
+
+        if (typeof showNotification === 'function') {
+            showNotification(`Notifying ${collectors.length} collectors in ${barangay} about ${bin.bin_id}`, 'info');
+        }
+    } catch (err) {
+        console.error(`💥 [Bin Alert] Critical error in notification flow:`, err);
+    }
+}
+
 function updateBinMonitoringDisplay(bins) {
     const binList = document.getElementById('liveBinList');
     if (!binList) return;
@@ -1516,25 +1593,41 @@ function updateBinMonitoringDisplay(bins) {
         if (bin.updated_at) {
             const diffSeconds =
                 (now - new Date(bin.updated_at).getTime()) / 1000;
-
-            if (diffSeconds <= 10) {
+            
+            // Allow up to 120 seconds of delay between heartbeats
+            if (diffSeconds <= 120) {
                 sensorStatus = "online";
             }
         }
 
         bin.sensorStatus = sensorStatus;
+
+        // --- BIN FULL NOTIFICATION LOGIC ---
+        const binKey = bin.bin_id || bin.id;
+
+        // Trigger notification if bin is online and marked as full by firmware
+        if (sensorStatus === "online" && bin.bin_status === "full") {
+            if (!notifiedBins.has(binKey)) {
+                notifiedBins.add(binKey);
+                triggerBinFullNotification(bin);
+            }
+        } else if (bin.bin_status === "normal") {
+            // Reset tracking once the bin level is normal
+            if (notifiedBins.has(binKey)) {
+                console.log(`♻️ [Bin Alert] Resetting notification flag for ${binKey}`);
+                notifiedBins.delete(binKey);
+            }
+        }
+        // ------------------------------------
     });
 
     // ✅ STEP 2 — Sort AFTER calculating status
     bins.sort((a, b) => {
 
         const getPriority = (bin) => {
-            const level = bin.fill_level ?? 0;
-
-            if (bin.sensorStatus === "offline") return 4;
-            if (level >= 60) return 1;
-            if (level >= 20) return 2;
-            return 3;
+            if (bin.sensorStatus === "offline") return 3;
+            if (bin.bin_status === "full") return 1;
+            return 2;
         };
 
         return getPriority(a) - getPriority(b);
@@ -1556,20 +1649,11 @@ function updateBinMonitoringDisplay(bins) {
             statusBg = "#e5e7eb";
             statusColor = "#6b7280";
         } else {
-            statusText =
-                level >= 60 ? "Full" :
-                    level >= 20 ? "Almost Full" :
-                        "Normal";
-
-            statusBg =
-                level >= 60 ? "#fee2e2" :
-                    level >= 20 ? "#fef3c7" :
-                        "#d1fae5";
-
-            statusColor =
-                level >= 60 ? "#991b1b" :
-                    level >= 20 ? "#92400e" :
-                        "#065f46";
+            const isFull = (bin.bin_status || '').toLowerCase() === 'full';
+            
+            statusText = isFull ? "Full" : "Normal";
+            statusBg = isFull ? "#fee2e2" : "#d1fae5";
+            statusColor = isFull ? "#991b1b" : "#065f46";
         }
 
         const onlineIndicator =
@@ -1672,22 +1756,75 @@ async function loadBins() {
         console.error(error);
     }
 }
+// Dropdown and Notification Helpers
+function closeNotificationDropdown() {
+    const dropdown = document.getElementById('notificationDropdown');
+    if (dropdown) {
+        dropdown.classList.remove('show');
+    }
+}
 
-supabase
-    .channel('bins-changes')
-    .on(
-        'postgres_changes',
-        {
-            event: '*',
-            schema: 'public',
-            table: 'bins'
-        },
-        (payload) => {
-            console.log('Change detected!', payload);
-            loadBins();
+function handleNotificationOutsideClick(e) {
+    const dropdown = document.getElementById('notificationDropdown');
+    const button = document.getElementById('notificationBtn');
+    if (dropdown && dropdown.classList.contains('show')) {
+        if (!dropdown.contains(e.target) && !button.contains(e.target)) {
+            closeNotificationDropdown();
         }
-    )
-    .subscribe();
+    }
+}
+
+async function markAllNotificationsAsRead() {
+    try {
+        const adminId = adminProfile?.id || getStoredAdminProfile()?.id;
+        if (!adminId) return;
+
+        const { error } = await supabase
+            .from(TABLES.NOTIFICATIONS)
+            .update({ is_read: true })
+            .eq('user_id', adminId)
+            .eq('is_read', false);
+
+        if (error) throw error;
+        
+        // Refresh UI
+        if (typeof updateBadge === 'function') await updateBadge();
+        showNotification('All notifications marked as read', 'success');
+    } catch (error) {
+        console.error('Error marking all as read:', error);
+        showNotification('Failed to mark notifications as read', 'error');
+    }
+}
+
+function updateNotificationUI(notifications) {
+    const list = document.getElementById('dropdownNotificationList');
+    if (!list) return;
+
+    if (!notifications || notifications.length === 0) {
+        list.innerHTML = '<div class="empty-notifications"><p>No new notifications</p></div>';
+        return;
+    }
+
+    list.innerHTML = notifications
+        .slice(0, 5)
+        .map(n => `
+            <div class="notification-item ${n.read ? '' : 'unread'}">
+                <div class="notification-icon">
+                    <i class="fas fa-${getNotificationIcon(n.type)}"></i>
+                </div>
+                <div class="notification-details">
+                    <p class="notification-title">${n.title}</p>
+                    <p class="notification-msg">${n.message}</p>
+                    <span class="notification-time">${utils ? utils.getRelativeTime(n.createdAt) : 'Just now'}</span>
+                </div>
+            </div>
+        `).join('');
+}
+
+/**
+ * Refresh the total notification count (All Updates)
+ * Calculates the sum of feedback, special collections, and bin alerts
+ */
 
 // Export functions for global access
 window.navigateToPage = navigateToPage;

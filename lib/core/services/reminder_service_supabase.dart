@@ -17,7 +17,6 @@ class ReminderService extends ChangeNotifier {
   Timer? _reminderCheckTimer;
   final List<Map<String, dynamic>> _reminders = [];
 
-  PickupService? _pickupService;
   String? _currentServiceArea;
 
   final Set<String> _sentReminderKeys = {};
@@ -60,7 +59,7 @@ class ReminderService extends ChangeNotifier {
     required PickupService pickupService,
   }) {
     if (kDebugMode) print('🛠️ ReminderService: updateDependencies called');
-    _pickupService = pickupService;
+    // _pickupService = pickupService; // Local collection check logic disabled
 
     final dynamic serviceAreaValue = authService.user?['serviceArea'];
     final serviceArea = serviceAreaValue?.toString().trim();
@@ -76,9 +75,6 @@ class ReminderService extends ChangeNotifier {
       _rescheduleBaselineReady = false;
       _rescheduleLastUpdatedSeconds.clear();
       _startRescheduleListener(serviceArea);
-
-      // Run an immediate check once schedules are loaded for this service area.
-      scheduleMicrotask(_checkUpcomingCollections);
     }
   }
 
@@ -95,16 +91,7 @@ class ReminderService extends ChangeNotifier {
 
     await _notifications.initialize(initSettings);
 
-    // Start periodic check for upcoming collections (every hour)
-    _reminderCheckTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _checkUpcomingCollections(),
-    );
-
-    if (kDebugMode) print('🛠️ ReminderService: Initialized and timer started');
-
-    // Also do an initial check on startup.
-    scheduleMicrotask(_checkUpcomingCollections);
+    if (kDebugMode) print('🛠️ ReminderService: Initialized');
   }
 
   void _cancelRescheduleSubscription() {
@@ -180,125 +167,11 @@ class ReminderService extends ChangeNotifier {
           },
           onError: (e) {
             if (kDebugMode) {
-              // ignore: avoid_print
               print('Error listening for reschedules: $e');
             }
             _rescheduleBaselineReady = true;
           },
         );
-  }
-
-  Future<void> _checkUpcomingCollections() async {
-    if (kDebugMode) {
-      print('🛠️ ReminderService: _checkUpcomingCollections called');
-    }
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    final inTwoHours = now.add(const Duration(hours: 2));
-
-    final pickupService = _pickupService;
-    final serviceArea = _currentServiceArea;
-    if (pickupService == null || serviceArea == null || serviceArea.isEmpty) {
-      if (kDebugMode) {
-        print('🛠️ ReminderService: Missing dependencies or service area');
-        print('   - PickupService null: ${pickupService == null}');
-        print('   - Service Area: $serviceArea');
-      }
-      return;
-    }
-
-    // Check for tomorrow's collections
-    final tomorrowPickups = pickupService.pickupsForDate(tomorrow);
-    for (final pickup in tomorrowPickups) {
-      await _processPickupReminder(
-        pickup: pickup,
-        serviceArea: serviceArea,
-        title: 'Collection Tomorrow!',
-        typeKey: 'tomorrow',
-      );
-    }
-
-    // Check for collections in the next 2 hours
-    final allPickups = pickupService.scheduledPickups;
-    final soonPickups = allPickups.where((p) {
-      final date = p['date'] as DateTime?;
-      return date != null && date.isAfter(now) && date.isBefore(inTwoHours);
-    }).toList();
-
-    for (final pickup in soonPickups) {
-      await _processPickupReminder(
-        pickup: pickup,
-        serviceArea: serviceArea,
-        title: 'Truck coming soon!',
-        typeKey: 'soon',
-      );
-    }
-  }
-
-  Future<void> _processPickupReminder({
-    required Map<String, dynamic> pickup,
-    required String serviceArea,
-    required String title,
-    required String typeKey,
-  }) async {
-    final dynamic rawDate = pickup['date'];
-    final DateTime? date = rawDate is DateTime ? rawDate : null;
-    if (date == null) return;
-
-    final String name = (pickup['type'] ?? 'Eco Collection').toString();
-    final String time = (pickup['time'] ?? '08:00').toString();
-
-    final key =
-        '${serviceArea.toLowerCase()}|${date.toIso8601String()}|$name|$typeKey';
-    if (_sentReminderKeys.contains(key)) {
-      return;
-    }
-    _sentReminderKeys.add(key);
-
-    await _sendReminderNotification(
-      serviceArea: serviceArea,
-      collectionName: name,
-      date: date,
-      time: time,
-      title: title,
-      showPopup: false, // Popups are handled by PickupService scheduling
-    );
-  }
-
-  Future<void> _sendReminderNotification({
-    required String serviceArea,
-    required String collectionName,
-    required DateTime date,
-    required String time,
-    String? title,
-    bool showPopup = true,
-  }) async {
-    final displayTitle = title ?? 'Collection Tomorrow!';
-    final message =
-        '$collectionName scheduled for ${_formatDate(date)} at $time';
-
-    // Check for duplicates in the current list
-    final bool alreadyExists = _reminders.any((r) =>
-        r['title'] == displayTitle &&
-        r['message'] == message &&
-        r['type'] == 'info' &&
-        _isSameDay(r['createdAt'] as DateTime, DateTime.now()));
-
-    if (alreadyExists) {
-      if (kDebugMode) print('Duplicate reminder prevented: $displayTitle');
-      return;
-    }
-
-    _reminders.insert(0, {
-      'id': DateTime.now().millisecondsSinceEpoch,
-      'title': displayTitle,
-      'message': message,
-      'type': 'info',
-      'read': false,
-      'createdAt': DateTime.now(),
-      'serviceArea': serviceArea,
-    });
-    notifyListeners();
   }
 
   Future<void> sendRescheduleNotification({
@@ -307,7 +180,7 @@ class ReminderService extends ChangeNotifier {
     required DateTime newDate,
     required String reason,
   }) async {
-    final title = 'Collection Rescheduled';
+    const title = 'Collection Rescheduled';
     final message =
         '$collectionName moved from ${_formatDate(originalDate)} to ${_formatDate(newDate)}. Reason: $reason';
 
@@ -341,34 +214,10 @@ class ReminderService extends ChangeNotifier {
     return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} ${date.day}';
   }
 
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  /// DEBUG: Trigger a test reminder immediately
-  Future<void> triggerTestReminder() async {
-    final now = DateTime.now();
-    await _sendReminderNotification(
-      serviceArea: _currentServiceArea ?? 'Test Area',
-      collectionName: 'Test Collection',
-      date: now,
-      time: 'Now',
-      title: 'Debug: Test Reminder',
-      showPopup: true,
-    );
-    if (kDebugMode) {
-      print('🛠️ DEBUG: Test reminder triggered.');
-    }
-  }
-
   @override
   void dispose() {
     _reminderCheckTimer?.cancel();
     _cancelRescheduleSubscription();
     super.dispose();
   }
-}
-
-extension on SupabaseStreamBuilder {
-  eq(String s, bool bool) {}
 }

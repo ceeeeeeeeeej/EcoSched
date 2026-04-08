@@ -1,0 +1,15 @@
+Analyzing special_collection_list_screen.dart...
+
+warning - special_collection_list_screen.dart:24:30 - The value of the field '_requests' isn't used. Try removing the field, or using it. - unused_field
+warning - special_collection_list_screen.dart:25:11 - The value of the field '_errorMessage' isn't used. Try removing the field, or using it. - unused_field
+warning - special_collection_list_screen.dart:124:10 - The declaration '_buildCollectionsList' isn't referenced. Try removing the declaration of '_buildCollectionsList'. - unused_element
+   info - special_collection_list_screen.dart:284:41 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:290:37 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:296:41 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:302:41 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:308:30 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:314:31 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:340:38 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+   info - special_collection_list_screen.dart:342:57 - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement. - deprecated_member_use
+
+11 issues found.

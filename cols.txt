@@ -1,0 +1,1 @@
+id, bin_id, address, fill_level, updated_at, zone

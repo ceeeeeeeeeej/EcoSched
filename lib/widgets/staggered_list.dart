@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 class StaggeredList extends StatefulWidget {
   final List<Widget> children;
@@ -67,12 +68,29 @@ class _StaggeredListState extends State<StaggeredList>
     }).toList();
   }
 
+  @override
+  void didUpdateWidget(StaggeredList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.children.length != oldWidget.children.length) {
+      if (kDebugMode) {
+        print('🔄 StaggeredList: Children count changed, re-initializing...');
+      }
+      for (var controller in _controllers) {
+        controller.dispose();
+      }
+      _initializeAnimations();
+      if (widget.startAnimation) {
+        _startAnimations();
+      }
+    }
+  }
+
   void _startAnimations() {
     for (int i = 0; i < _controllers.length; i++) {
       Future.delayed(
         Duration(milliseconds: (widget.delay.inMilliseconds * i)),
         () {
-          if (mounted) {
+          if (mounted && i < _controllers.length) {
             _controllers[i].forward();
           }
         },
@@ -93,7 +111,8 @@ class _StaggeredListState extends State<StaggeredList>
     return Column(
       children: List.generate(widget.children.length, (index) {
         return AnimatedBuilder(
-          animation: Listenable.merge([_fadeAnimations[index], _slideAnimations[index]]),
+          animation: Listenable.merge(
+              [_fadeAnimations[index], _slideAnimations[index]]),
           builder: (context, child) {
             return FadeTransition(
               opacity: _fadeAnimations[index],
@@ -184,12 +203,26 @@ class _StaggeredGridState extends State<StaggeredGrid>
     }).toList();
   }
 
+  @override
+  void didUpdateWidget(StaggeredGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.children.length != oldWidget.children.length) {
+      for (var controller in _controllers) {
+        controller.dispose();
+      }
+      _initializeAnimations();
+      if (widget.startAnimation) {
+        _startAnimations();
+      }
+    }
+  }
+
   void _startAnimations() {
     for (int i = 0; i < _controllers.length; i++) {
       Future.delayed(
         Duration(milliseconds: (widget.delay.inMilliseconds * i)),
         () {
-          if (mounted) {
+          if (mounted && i < _controllers.length) {
             _controllers[i].forward();
           }
         },
@@ -219,7 +252,8 @@ class _StaggeredGridState extends State<StaggeredGrid>
       itemCount: widget.children.length,
       itemBuilder: (context, index) {
         return AnimatedBuilder(
-          animation: Listenable.merge([_fadeAnimations[index], _slideAnimations[index]]),
+          animation: Listenable.merge(
+              [_fadeAnimations[index], _slideAnimations[index]]),
           builder: (context, child) {
             return FadeTransition(
               opacity: _fadeAnimations[index],

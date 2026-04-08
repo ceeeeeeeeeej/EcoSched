@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/constants/app_constants.dart';
@@ -24,29 +25,43 @@ class _FeedbackScreenState extends State<FeedbackScreen>
   late Animation<double> _fadeAnimation;
 
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
   final _messageController = TextEditingController();
+  final _barangayController = TextEditingController();
+  final _purokController = TextEditingController();
 
-  String _selectedCategory = 'General waste concern';
-  String _selectedPriority = 'Medium';
+  String _selectedCategory = 'General waste concern | (Kinatibuk-an sa basura)';
+  String _selectedPriority = 'Medium | (Kasamtangan)';
   bool _isAnonymous = false;
   bool _isSubmitting = false;
 
   final List<String> _categories = [
-    'General waste concern',
-    'Missed or late garbage collection',
-    'Schedule or route issue',
-    'Trash segregation / sorting issue',
-    'Overflowing bins or dumpsite',
-    'Smell or cleanliness issue',
-    'EcoSched app (waste app)',
+    'General waste concern | (Kinatibuk-an sa basura)',
+    'Missed or late garbage collection | (Wala nakuha ang basura)',
+    'Schedule or route issue | (Problema sa eskedyul o ruta)',
+    'Trash segregation / sorting issue | (Problema sa paglain-lain sa basura)',
+    'Overflowing bins or dumpsite | (Aapaw ang basurahan)',
+    'Smell or cleanliness issue | (Baho o isyu sa kalimpyo)',
+    'EcoSched app (waste app) | (Isyu sa app)',
+    'Compliment / Appreciation | (Pagdayeg / Pasalamat)',
+    'Good service experience | (Maayong serbisyo)',
+    'Efficient collection | (Paspas nga pagkolekta)',
+    'Clean area maintained | (Limpyo ang palibot)',
   ];
 
+  bool get _isPositiveFeedback {
+    return [
+      'Compliment / Appreciation | (Pagdayeg / Pasalamat)',
+      'Good service experience | (Maayong serbisyo)',
+      'Efficient collection | (Paspas nga pagkolekta)',
+      'Clean area maintained | (Limpyo ang palibot)',
+    ].contains(_selectedCategory);
+  }
+
   final List<String> _priorities = [
-    'Low',
-    'Medium',
-    'High',
-    'Urgent',
+    'Low | (Ubos)',
+    'Medium | (Kasamtangan)',
+    'High | (Hataas)',
+    'Urgent | (Dinalian)',
   ];
 
   @override
@@ -66,13 +81,25 @@ class _FeedbackScreenState extends State<FeedbackScreen>
     ));
 
     _fadeController.forward();
+
+    // Pre-fill location fields
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = context.read<AuthService>().user;
+      if (user != null) {
+        setState(() {
+          _barangayController.text = user['barangay']?.toString() ?? '';
+          _purokController.text = user['purok']?.toString() ?? '';
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
     _fadeController.dispose();
-    _titleController.dispose();
     _messageController.dispose();
+    _barangayController.dispose();
+    _purokController.dispose();
     super.dispose();
   }
 
@@ -144,26 +171,51 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                               ),
                               const SizedBox(width: 16),
                               Expanded(
-                                child: Text(
-                                  'Help Us Improve Local Collection',
-                                  style:
-                                      theme.textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: primaryTextOnCard,
-                                    letterSpacing: -0.5,
+                                child: RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: 'Help Us Improve Local Collection\n',
+                                        style: theme.textTheme.headlineSmall?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: primaryTextOnCard,
+                                          letterSpacing: -0.5,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: '(Tabangi Kami sa Pagpalambo)',
+                                        style: theme.textTheme.titleMedium?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                          color: AppTheme.primary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 12),
-                          Text(
-                            'Report issues or suggest improvements to waste management in your area. Your feedback helps us maintain a cleaner community.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: secondaryTextOnCard,
-                              height: 1.5,
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Report issues or suggest improvements to waste management in your area. Your feedback helps us maintain a cleaner community.\n\n',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: secondaryTextOnCard,
+                                    height: 1.5,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: '(I-report ang mga isyu o isugyot ang mga paagi para mapalambo ang pagdumala sa basura sa inyong lugar. Ang imong feedback makatabang sa pagmintinar sa kalimpyo sa atong komunidad.)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: secondaryTextOnCard,
+                                    fontStyle: FontStyle.italic,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -178,21 +230,47 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Feedback Details',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: primaryTextOnCard,
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Feedback Details\n',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: primaryTextOnCard,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: '(Detalye sa Feedback)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontStyle: FontStyle.italic,
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 24),
 
                           // Category Selection
-                          Text(
-                            'Category',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: primaryTextOnCard,
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Category\n',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: primaryTextOnCard,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: '(Kategorya)',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontStyle: FontStyle.italic,
+                                    color: secondaryTextOnCard,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -202,14 +280,67 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                             decoration: InputDecoration(
                               filled: true,
                               fillColor: fieldFillColor,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
                             ),
+                            selectedItemBuilder: (BuildContext context) {
+                              return _categories.map((String category) {
+                                final parts = category.split(' | ');
+                                final english = parts[0];
+                                final bisaya = parts.length > 1 ? parts[1] : '';
+
+                                return Container(
+                                  alignment: Alignment.centerLeft,
+                                  child: RichText(
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '$english\n',
+                                          style: theme.textTheme.bodyLarge?.copyWith(
+                                            color: primaryTextOnCard,
+                                          ),
+                                        ),
+                                        if (bisaya.isNotEmpty)
+                                          TextSpan(
+                                            text: bisaya,
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: secondaryTextOnCard,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList();
+                            },
                             items: _categories.map((String category) {
+                              final parts = category.split(' | ');
+                              final english = parts[0];
+                              final bisaya = parts.length > 1 ? parts[1] : '';
+
                               return DropdownMenuItem<String>(
                                 value: category,
-                                child: Text(
-                                  category,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyLarge,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      english,
+                                      style: theme.textTheme.bodyLarge,
+                                    ),
+                                    if (bisaya.isNotEmpty)
+                                      Text(
+                                        bisaya,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                          color: secondaryTextOnCard,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               );
                             }).toList(),
@@ -221,72 +352,133 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                           ),
                           const SizedBox(height: 16),
 
-                          // Priority Selection
-                          Text(
-                            'Priority Level',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: primaryTextOnCard,
+                          if (!_isPositiveFeedback) ...[
+                            // Priority Selection
+                            RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Priority Level\n',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: primaryTextOnCard,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: '(Antas sa prayoridad)',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontStyle: FontStyle.italic,
+                                      color: secondaryTextOnCard,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          DropdownButtonFormField<String>(
-                            isExpanded: true,
-                            value: _selectedPriority,
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: fieldFillColor,
-                            ),
-                            items: _priorities.map((String priority) {
-                              return DropdownMenuItem<String>(
-                                value: priority,
-                                child: Text(
-                                  priority,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyLarge,
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              isExpanded: true,
+                              value: _selectedPriority,
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: fieldFillColor,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
                                 ),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              setState(() {
-                                _selectedPriority = newValue!;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 16),
+                              ),
+                              selectedItemBuilder: (BuildContext context) {
+                                return _priorities.map((String priority) {
+                                  final parts = priority.split(' | ');
+                                  final english = parts[0];
+                                  final bisaya = parts.length > 1 ? parts[1] : '';
 
-                          // Title Field
-                          Text(
-                            'Subject',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: primaryTextOnCard,
+                                  return Container(
+                                    alignment: Alignment.centerLeft,
+                                    child: RichText(
+                                      overflow: TextOverflow.ellipsis,
+                                      text: TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: '$english\n',
+                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                              color: primaryTextOnCard,
+                                            ),
+                                          ),
+                                          if (bisaya.isNotEmpty)
+                                            TextSpan(
+                                              text: bisaya,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontStyle: FontStyle.italic,
+                                                color: secondaryTextOnCard,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList();
+                              },
+                              items: _priorities.map((String priority) {
+                                final parts = priority.split(' | ');
+                                final english = parts[0];
+                                final bisaya = parts.length > 1 ? parts[1] : '';
+
+                                return DropdownMenuItem<String>(
+                                  value: priority,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                    child: RichText(
+                                      text: TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: '$english\n',
+                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                              color: primaryTextOnCard,
+                                            ),
+                                          ),
+                                          if (bisaya.isNotEmpty)
+                                            TextSpan(
+                                              text: bisaya,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontStyle: FontStyle.italic,
+                                                color: secondaryTextOnCard,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  _selectedPriority = newValue!;
+                                });
+                              },
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _titleController,
-                            decoration: InputDecoration(
-                              hintText:
-                                  'Summarize your feedback in a few words',
-                              filled: true,
-                              fillColor: fieldFillColor,
-                            ),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Please enter a subject.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
+                            const SizedBox(height: 16),
+                          ],
+
 
                           // Message Field
-                          Text(
-                            'Additional Details',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: primaryTextOnCard,
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Additional Details\n',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: primaryTextOnCard,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: '(Dugang Detalye)',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontStyle: FontStyle.italic,
+                                    color: secondaryTextOnCard,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -295,7 +487,10 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                             maxLines: 5,
                             decoration: InputDecoration(
                               hintText:
-                                  'Please provide specific details to help us address your concern.',
+                                  'Please provide specific details to help us address your concern. \n\n(Palihug paghatag og espesipikong detalye aron matabangan namo ang imong reklamo.)',
+                              hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                                color: secondaryTextOnCard.withOpacity(0.6),
+                              ),
                               filled: true,
                               fillColor: fieldFillColor,
                             ),
@@ -309,6 +504,86 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                               return null;
                             },
                           ),
+                          const SizedBox(height: 16),
+
+                          // Location Detail Fields
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    RichText(
+                                      text: TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: 'Barangay\n',
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: primaryTextOnCard,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: '(Barangay)',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: secondaryTextOnCard,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      controller: _barangayController,
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. Victoria',
+                                        filled: true,
+                                        fillColor: fieldFillColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    RichText(
+                                      text: TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: 'Purok\n',
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: primaryTextOnCard,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: '(Purok)',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: secondaryTextOnCard,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      controller: _purokController,
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. Purok 1',
+                                        filled: true,
+                                        fillColor: fieldFillColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -317,13 +592,47 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                     // Submit Button
                     AnimatedButton(
-                      text: _isSubmitting
-                          ? 'Submitting Request...'
-                          : 'Submit Feedback',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isSubmitting
+                                ? Icons.hourglass_empty_rounded
+                                : Icons.send_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: _isSubmitting
+                                      ? 'Submitting...\n'
+                                      : 'Submit Feedback\n',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: _isSubmitting
+                                      ? '(Gapadala...)'
+                                      : '(I-sumiter ang Feedback)',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.9),
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                       onPressed: _isSubmitting ? null : _submitFeedback,
-                      icon: _isSubmitting
-                          ? Icons.hourglass_empty_rounded
-                          : Icons.send_rounded,
                       isGradient: true,
                       gradientColors: AppTheme.primaryGradient,
                     ),
@@ -353,8 +662,7 @@ class _FeedbackScreenState extends State<FeedbackScreen>
     try {
       await feedbackService.submitFeedback(
         category: _selectedCategory,
-        priority: _selectedPriority,
-        title: _titleController.text.trim(),
+        priority: _isPositiveFeedback ? 'Low | (Ubos)' : _selectedPriority,
         message: _messageController.text.trim(),
         isAnonymous: _isAnonymous,
         residentId: user?['uid']?.toString(),
@@ -363,19 +671,19 @@ class _FeedbackScreenState extends State<FeedbackScreen>
             user?['name']?.toString(),
         residentEmail: _isAnonymous ? null : user?['email']?.toString(),
         serviceArea: user?['serviceArea']?.toString(),
-        barangay: user?['barangay']?.toString(),
-        purok: user?['purok']?.toString(),
+        barangay: _barangayController.text.trim(),
+        purok: _purokController.text.trim(),
+        isGuest: !authService.isAuthenticated,
       );
 
       HapticFeedback.lightImpact();
 
       if (mounted) {
         _formKey.currentState?.reset();
-        _titleController.clear();
         _messageController.clear();
         setState(() {
-          _selectedCategory = _categories.first;
-          _selectedPriority = 'Medium';
+          _selectedCategory = 'General waste concern | (Kinatibuk-an sa basura)';
+          _selectedPriority = 'Medium | (Kasamtangan)';
           _isAnonymous = false;
         });
 
@@ -386,11 +694,11 @@ class _FeedbackScreenState extends State<FeedbackScreen>
               children: [
                 Icon(Icons.check_circle, color: AppTheme.primaryGreen),
                 SizedBox(width: 8),
-                Text('Feedback sent'),
+                Text('Feedback sent | Napadala na'),
               ],
             ),
             content: const Text(
-                'Thank you for taking the time to share your feedback. We will review it and use it to improve waste collection in your area.'),
+                'Thank you for taking the time to share your feedback. We will review it and use it to improve waste collection in your area. \n\n Salamat sa imong paggahin og oras sa pagpaambit sa imong feedback. Amo kining susihon para sa pagpalambo sa serbisyo sa inyong lugar.'),
             actions: [
               TextButton(
                 onPressed: () {
@@ -410,10 +718,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
         print('Error submitting feedback: $e');
       }
       if (mounted) {
+        String errorMsg = e.toString();
+        if (e is PostgrestException) {
+          errorMsg = e.message;
+          if (e.details != null && e.details.toString().isNotEmpty) {
+            errorMsg += ': ${e.details}';
+          }
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Submission failed: ${e.toString().split(':').last.trim()}'),
+            content: Text('Submission failed: $errorMsg'),
             backgroundColor: Colors.red.shade800,
           ),
         );

@@ -1,0 +1,17 @@
+[
+  {
+    "id": "1e97caf0-f282-4451-b41f-80c5ebb04a38",
+    "email": "cristinepentin@gmail.com",
+    "role": "admin"
+  },
+  {
+    "id": "645eea69-5f7d-3b4a-846a-1f35971877c0",
+    "email": null,
+    "role": "resident"
+  },
+  {
+    "id": "c3333891-3591-4a9d-957b-14a2c2e4d9d5",
+    "email": "danilo@gmail.com",
+    "role": "collector"
+  }
+]

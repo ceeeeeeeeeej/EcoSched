@@ -12,6 +12,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
 import '../../firebase_options.dart';
 import '../config/supabase_config.dart';
+import '../utils/id_utils.dart';
 
 @pragma('vm:entry-point')
 class BackgroundService {
@@ -139,14 +140,17 @@ class BackgroundService {
 
   static Future<String> _getDeviceId() async {
     final deviceInfo = DeviceInfoPlugin();
+    String baseId = 'unknown';
+
     if (Platform.isAndroid) {
       final androidInfo = await deviceInfo.androidInfo;
-      return androidInfo.id;
+      baseId = androidInfo.id;
     } else if (Platform.isIOS) {
       final iosInfo = await deviceInfo.iosInfo;
-      return iosInfo.identifierForVendor ?? 'unknown_ios';
+      baseId = iosInfo.identifierForVendor ?? 'unknown_ios';
     }
-    return 'unknown_device';
+
+    return IdUtils.generateUuidFromSeed(baseId);
   }
 
   static Future<void> _setupSubscription(
@@ -209,6 +213,7 @@ class BackgroundService {
             });
 
             // Show persistent push notification
+            /* 
             notifications.show(
               DateTime.now().millisecond,
               title,
@@ -230,6 +235,7 @@ class BackgroundService {
                 ),
               ),
             );
+            */
           },
         )
         .subscribe();
@@ -266,6 +272,7 @@ class BackgroundService {
             });
 
             // Show persistent push notification
+            /* 
             notifications.show(
               DateTime.now().millisecond,
               title,
@@ -287,6 +294,7 @@ class BackgroundService {
                 ),
               ),
             );
+            */
           },
         )
         .subscribe();
@@ -316,6 +324,7 @@ class BackgroundService {
               'type': 'barangay_notification',
             });
 
+            /*
             notifications.show(
               DateTime.now().millisecondsSinceEpoch ~/ 1000,
               title,
@@ -337,6 +346,7 @@ class BackgroundService {
                 ),
               ),
             );
+            */
           },
         )
         .subscribe();

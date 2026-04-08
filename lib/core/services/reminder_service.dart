@@ -7,6 +7,7 @@ import 'auth_service.dart';
 import 'pickup_service.dart';
 import 'notification_service.dart';
 import '../config/supabase_config.dart';
+import '../localization/translations.dart';
 
 class ReminderService extends ChangeNotifier {
   final SupabaseClient _supabase = SupabaseConfig.client;
@@ -99,36 +100,47 @@ class ReminderService extends ChangeNotifier {
       _currentServiceArea = serviceArea;
       _activeUserId = effectiveUserId;
       _sentReminderKeys.clear();
-      _fetchNotifications();
-      _startNotificationListener();
+
+      // 🚀 Await fetch BEFORE starting listener to prevent popups for existing items
+      _fetchNotifications().then((_) {
+        _startNotificationListener();
+      });
 
       if (kDebugMode) {
         print(
             '🛠️ ReminderService: Service area: $serviceArea, UserID: $effectiveUserId');
       }
-
-      // Run an immediate check once schedules are loaded for this service area.
-      scheduleMicrotask(_checkUpcomingCollections);
     }
   }
 
   void initialize() {
     if (kDebugMode) print('🛠️ ReminderService: Initializing timer...');
-    // Start periodic check for upcoming collections (every hour)
-    _reminderCheckTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _checkUpcomingCollections(),
-    );
+    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
+    // _reminderCheckTimer = Timer.periodic(
+    //   const Duration(hours: 1),
+    //   (_) => _checkUpcomingCollections(),
+    // );
 
     if (kDebugMode) print('🛠️ ReminderService: Timer started');
 
-    // Also do an initial check on startup.
-    scheduleMicrotask(_checkUpcomingCollections);
+    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
+    // scheduleMicrotask(_checkUpcomingCollections);
   }
 
   void _cancelNotificationSubscription() {
     _notificationSubscription?.cancel();
     _notificationSubscription = null;
+  }
+
+  DateTime _parseTimestamp(dynamic value) {
+    if (value == null) return DateTime.now();
+    String str = value.toString();
+    // If it doesn't have a timezone indicator, assume it's UTC and append 'Z'
+    if (!str.contains('Z') && !str.contains('+') && str.contains('T')) {
+      str += 'Z';
+    }
+    // Return local time (Philippine Time)
+    return DateTime.tryParse(str)?.toLocal() ?? DateTime.now();
   }
 
   Future<void> _fetchNotifications() async {
@@ -151,7 +163,7 @@ class ReminderService extends ChangeNotifier {
       final announcementsResponse = await _supabase
           .from(SupabaseConfig.announcementsTable)
           .select()
-          .or('target_audience.eq.$serviceArea,target_audience.eq.all')
+          .or('target_audience.ilike.$serviceArea,target_audience.eq.all')
           .order('created_at', ascending: false)
           .limit(50);
 
@@ -159,72 +171,51 @@ class ReminderService extends ChangeNotifier {
       final barangayResponse = await _supabase
           .from(SupabaseConfig.notificationsTable)
           .select()
-          .eq('barangay', serviceArea)
+          .eq('barangay', serviceArea) // Main filter
           .order('created_at', ascending: false)
           .limit(50);
 
       _reminders.clear();
-      for (final doc in response) {
-        String? createdAtStr = doc['created_at']?.toString();
-        if (createdAtStr != null &&
-            !createdAtStr.contains('Z') &&
-            !createdAtStr.contains('+')) {
-          createdAtStr += 'Z';
-        }
+      final Set<String> contentHashes = {};
 
+      void addUniqueNotification(Map<String, dynamic> doc,
+          {String type = 'info'}) {
+        final id = doc['id'];
+        final rawTitle = doc['title']?.toString() ?? 'Notification';
+        final rawMessage = (doc['message'] ?? doc['content'])?.toString() ?? '';
+        final createdAt = _parseTimestamp(doc['created_at']);
+
+        // --- CONTENT DEDUPLICATION ---
+        // Create a hash based on Title, Message, and Date (ignore seconds/millis)
+        final dateKey = "${createdAt.year}-${createdAt.month}-${createdAt.day}";
+        final contentHash = "${rawTitle.trim()}|${rawMessage.trim()}|$dateKey";
+
+        if (contentHashes.contains(contentHash)) return;
+        if (id != null && _reminders.any((r) => r['id'] == id)) return;
+
+        contentHashes.add(contentHash);
         _reminders.add({
-          'id': doc['id'],
-          'title': doc['title']?.toString() ?? 'Notification',
-          'message': doc['message']?.toString() ?? '',
-          'type': doc['type']?.toString() ?? 'info',
+          'id': id,
+          'title': Translations.getBilingualText(rawTitle),
+          'message': Translations.getBilingualText(rawMessage),
+          'type': type,
           'read': doc['is_read'] == true,
-          'createdAt': createdAtStr != null
-              ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-              : DateTime.now(),
+          'createdAt': createdAt,
         });
+      }
+
+      for (final doc in response) {
+        final title = doc['title']?.toString() ?? '';
+        if (title.toLowerCase().contains('pickup request')) continue;
+        addUniqueNotification(doc, type: doc['type']?.toString() ?? 'info');
       }
 
       for (final doc in announcementsResponse) {
-        String? createdAtStr = doc['created_at']?.toString();
-        if (createdAtStr != null &&
-            !createdAtStr.contains('Z') &&
-            !createdAtStr.contains('+')) {
-          createdAtStr += 'Z';
-        }
-
-        _reminders.add({
-          'id': doc['id'],
-          'title': doc['title']?.toString() ?? 'Announcement',
-          'message': (doc['content'] ?? doc['message'])?.toString() ?? '',
-          'type': 'announcement',
-          'read': false,
-          'createdAt': createdAtStr != null
-              ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-              : DateTime.now(),
-        });
+        addUniqueNotification(doc, type: 'announcement');
       }
 
       for (final doc in barangayResponse) {
-        final id = doc['id'];
-        if (id != null && !_reminders.any((r) => r['id'] == id)) {
-          String? createdAtStr = doc['created_at']?.toString();
-          if (createdAtStr != null &&
-              !createdAtStr.contains('Z') &&
-              !createdAtStr.contains('+')) {
-            createdAtStr += 'Z';
-          }
-
-          _reminders.add({
-            'id': id,
-            'title': doc['title']?.toString() ?? 'Barangay Alert',
-            'message': doc['message']?.toString() ?? '',
-            'type': doc['type']?.toString() ?? 'alert',
-            'read': doc['is_read'] == true,
-            'createdAt': createdAtStr != null
-                ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-                : DateTime.now(),
-          });
-        }
+        addUniqueNotification(doc, type: doc['type']?.toString() ?? 'alert');
       }
 
       // Sort combined
@@ -240,64 +231,56 @@ class ReminderService extends ChangeNotifier {
   void _startNotificationListener() {
     _cancelNotificationSubscription();
     final userId = _activeUserId;
-    if (userId != null) {
-      _notificationSubscription = _supabase
-          .from(SupabaseConfig.notificationsTable)
-          .stream(primaryKey: ['id'])
-          .eq('user_id', userId)
-          .listen(
-            (data) {
-              bool changed = false;
-              for (final doc in data) {
-                final id = doc['id'];
-                final exists = _reminders.any((r) => r['id'] == id);
+    if (userId == null) return;
 
-                if (!exists) {
-                  String? createdAtStr = doc['created_at']?.toString();
-                  if (createdAtStr != null &&
-                      !createdAtStr.contains('Z') &&
-                      !createdAtStr.contains('+')) {
-                    createdAtStr += 'Z';
-                  }
+    _supabase
+        .channel('public:notifications:user:$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: SupabaseConfig.notificationsTable,
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            final doc = payload.newRecord;
+            if (doc.isEmpty) return;
 
-                  final createdAt = createdAtStr != null
-                      ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-                      : DateTime.now();
+            final id = doc['id'];
+            final createdAt = _parseTimestamp(doc['created_at']);
 
-                  _reminders.insert(0, {
-                    'id': id,
-                    'title': doc['title']?.toString() ?? 'Notification',
-                    'message': doc['message']?.toString() ?? '',
-                    'type': doc['type']?.toString() ?? 'info',
-                    'read': doc['is_read'] == true,
-                    'createdAt': createdAt,
-                  });
-                  changed = true;
+            // Only alert for TRULY new notifications (within last 60 seconds)
+            final bool isRecent =
+                DateTime.now().difference(createdAt).inSeconds < 60;
 
-                  // Show local notification for new alerts (e.g. Rescheduled)
-                  if (doc['type'] == 'alert' &&
-                      (doc['is_read'] == null || doc['is_read'] == false) &&
-                      DateTime.now().difference(createdAt).inMinutes < 5) {
-                    NotificationService.showNotification(
-                      id: id.hashCode & 0x7FFFFFFF,
-                      title: doc['title'] ?? 'New Alert',
-                      body: doc['message'] ?? 'You have a new notification',
-                    );
-                  }
-                }
+            if (!_reminders.any((r) => r['id'] == id)) {
+              _reminders.insert(0, {
+                'id': id,
+                'title': Translations.getBilingualText(
+                    doc['title']?.toString() ?? 'Notification'),
+                'message': Translations.getBilingualText(
+                    doc['message']?.toString() ?? ''),
+                'type': doc['type']?.toString() ?? 'info',
+                'read': doc['is_read'] == true,
+                'createdAt': createdAt,
+              });
+
+              notifyListeners();
+
+              // Show local notification ONLY for recent high-priority alerts
+              if (isRecent && doc['type'] == 'alert') {
+                NotificationService.showNotification(
+                  id: id.hashCode & 0x7FFFFFFF,
+                  title: doc['title'] ?? 'New Alert',
+                  body: doc['message'] ?? 'You have a new notification',
+                );
               }
-
-              if (changed) {
-                _reminders.sort((a, b) => (b['createdAt'] as DateTime)
-                    .compareTo(a['createdAt'] as DateTime));
-                notifyListeners();
-              }
-            },
-            onError: (e) {
-              if (kDebugMode) print('❌ Error listening to notifications: $e');
-            },
-          );
-    }
+            }
+          },
+        )
+        .subscribe();
 
     // ALSO Listen for targeted Barangay Notifications (Realtime)
     _supabase
@@ -316,22 +299,15 @@ class ReminderService extends ChangeNotifier {
             if (doc.isNotEmpty) {
               final id = doc['id'];
               if (!_reminders.any((r) => r['id'] == id)) {
-                String? createdAtStr = doc['created_at']?.toString();
-                if (createdAtStr != null &&
-                    !createdAtStr.contains('Z') &&
-                    !createdAtStr.contains('+')) {
-                  createdAtStr += 'Z';
-                }
-
                 _reminders.insert(0, {
                   'id': id,
-                  'title': doc['title']?.toString() ?? 'Barangay Alert',
-                  'message': doc['message']?.toString() ?? '',
+                  'title': Translations.getBilingualText(
+                      doc['title']?.toString() ?? 'Barangay Alert'),
+                  'message': Translations.getBilingualText(
+                      doc['message']?.toString() ?? ''),
                   'type': doc['type']?.toString() ?? 'alert',
                   'read': doc['is_read'] == true,
-                  'createdAt': createdAtStr != null
-                      ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-                      : DateTime.now(),
+                  'createdAt': _parseTimestamp(doc['created_at']),
                 });
 
                 _reminders.sort((a, b) => (b['createdAt'] as DateTime)
@@ -367,21 +343,17 @@ class ReminderService extends ChangeNotifier {
                   final exists = _reminders.any((r) => r['id'] == id);
 
                   if (!exists) {
-                    String? createdAtStr = newRecord['created_at']?.toString();
-                    if (createdAtStr != null && !createdAtStr.endsWith('Z'))
-                      createdAtStr += 'Z';
-
                     _reminders.insert(0, {
                       'id': id,
-                      'title': newRecord['title']?.toString() ?? 'Announcement',
-                      'message': (newRecord['content'] ?? newRecord['message'])
-                              ?.toString() ??
-                          '',
+                      'title': Translations.getBilingualText(
+                          newRecord['title']?.toString() ?? 'Announcement'),
+                      'message': Translations.getBilingualText(
+                          (newRecord['content'] ?? newRecord['message'])
+                                  ?.toString() ??
+                              ''),
                       'type': 'announcement',
                       'read': false,
-                      'createdAt': createdAtStr != null
-                          ? DateTime.tryParse(createdAtStr) ?? DateTime.now()
-                          : DateTime.now(),
+                      'createdAt': _parseTimestamp(newRecord['created_at']),
                     });
 
                     // Sort combined
@@ -482,8 +454,8 @@ class ReminderService extends ChangeNotifier {
     if (typeKey == 'soon' || typeKey == 'tomorrow') {
       await NotificationService.showNotification(
         id: (date.millisecondsSinceEpoch ~/ 1000) & 0x7FFFFFFF,
-        title: title,
-        body: body,
+        title: Translations.getBilingualText(title),
+        body: Translations.getBilingualText(body),
       );
     }
 
@@ -505,6 +477,7 @@ class ReminderService extends ChangeNotifier {
             'type': 'reminder',
             'priority': typeKey == 'soon' ? 'high' : 'medium',
             'is_read': false,
+            'barangay': serviceArea,
           });
         }
       }
@@ -530,6 +503,32 @@ class ReminderService extends ChangeNotifier {
       'Dec'
     ];
     return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} ${date.day}';
+  }
+
+  /// DEBUG: Trigger a test notification immediately
+  Future<void> triggerTestNotification() async {
+    const title = '🔔 Test Notification';
+    const message =
+        'Success! Your device is correctly set up to receive EcoSched alerts.';
+
+    // 1. Show local system notification
+    await NotificationService.showNotification(
+      id: 999,
+      title: title,
+      body: message,
+    );
+
+    // 2. Add to in-app list
+    _reminders.insert(0, {
+      'id': 'test_${DateTime.now().millisecondsSinceEpoch}',
+      'title': title,
+      'message': message,
+      'type': 'info',
+      'read': false,
+      'createdAt': DateTime.now(),
+    });
+
+    notifyListeners();
   }
 
   @override

@@ -1,0 +1,24 @@
+{
+  "specialCollectionsCount": 10,
+  "adminsCount": 1,
+  "admins": [
+    {
+      "id": "1e97caf0-f282-4451-b41f-80c5ebb04a38",
+      "email": "cristinepentin@gmail.com",
+      "first_name": null,
+      "last_name": null,
+      "full_name": "Cristine",
+      "phone": null,
+      "role": "admin",
+      "status": "active",
+      "service_area": null,
+      "organization": null,
+      "created_at": "2026-02-23T14:45:37.265738+00:00",
+      "updated_at": "2026-02-23T14:45:37.265738+00:00",
+      "location": null,
+      "barangay": null,
+      "purok": null,
+      "fcm_token": null
+    }
+  ]
+}

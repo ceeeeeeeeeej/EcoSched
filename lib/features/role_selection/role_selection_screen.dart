@@ -24,7 +24,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late PageController _pageController;
-  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -58,7 +57,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
     _fadeController.forward();
     _slideController.forward();
 
-    // If already authenticated, skip role selection and go home for role
+    // If already authenticated, skip role selection and go home
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = Provider.of<AuthService>(context, listen: false);
       if (auth.isAuthenticated) {
@@ -76,19 +75,14 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
   }
 
   void _selectRole(String role) {
-    if (role == AppConstants.collectorRole) {
-      // Go to the dedicated collector login screen (has Scaffold + Material)
-      Navigator.of(context).pushNamed(AppRoutes.collectorLogin);
-    } else {
-      // Keep the animated transition for resident location selection
-      Navigator.of(context).push(
-        NaturePageRoute(
-          child: const ResidentLocationSelectionScreen(),
-          transitionType: NatureTransitionType.slideUp,
-          duration: const Duration(milliseconds: 600),
-        ),
-      );
-    }
+    // Only resident role selection remains
+    Navigator.of(context).push(
+      NaturePageRoute(
+        child: const ResidentLocationSelectionScreen(),
+        transitionType: NatureTransitionType.slideUp,
+        duration: const Duration(milliseconds: 600),
+      ),
+    );
   }
 
   @override
@@ -136,10 +130,11 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                                       ),
                                     ],
                                   ),
-                                  child: const Icon(
-                                    Icons.eco_rounded,
-                                    size: 70,
-                                    color: Colors.white,
+                                  child: Image.asset(
+                                    'assets/images/ecosched_logo.png',
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
                               ),
@@ -181,272 +176,84 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
                         ),
                       ),
                       const SizedBox(height: 30),
+                      const SizedBox(height: 30),
                       FadeTransition(
                         opacity: _fadeAnimation,
                         child: Column(
                           children: [
-                            // Sliding segmented control for role selection
-                            Container(
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.35),
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                    color: Colors.white.withOpacity(0.4),
-                                    width: 1),
-                              ),
-                              child: Stack(
+                            // Only Resident Page remains, simplified layout
+                            GlassmorphicContainer(
+                              width: double.infinity,
+                              padding: EdgeInsets.all(AppTheme.spacing8),
+                              borderRadius: AppTheme.radiusL,
+                              child: Column(
                                 children: [
-                                  AnimatedAlign(
-                                    alignment: _currentIndex == 0
-                                        ? Alignment.centerLeft
-                                        : Alignment.centerRight,
-                                    duration: const Duration(milliseconds: 250),
-                                    curve: Curves.easeOutCubic,
+                                  NatureHeroAnimation(
+                                    tag: 'resident_icon',
                                     child: Container(
-                                      width:
-                                          (MediaQuery.of(context).size.width -
-                                                  AppTheme.spacing8 * 2) *
-                                              0.5,
-                                      margin: const EdgeInsets.all(4),
+                                      width: 80,
+                                      height: 80,
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(24),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color:
-                                                Colors.black.withOpacity(0.06),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            AppTheme.secondary
+                                                .withOpacity(0.1),
+                                            AppTheme.secondary
+                                                .withOpacity(0.05),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: AppTheme.secondary
+                                              .withOpacity(0.2),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.home_rounded,
+                                        size: 40,
+                                        color: AppTheme.secondary,
                                       ),
                                     ),
                                   ),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            setState(() {
-                                              _currentIndex = 0;
-                                            });
-                                            _pageController.animateToPage(0,
-                                                duration: const Duration(
-                                                    milliseconds: 300),
-                                                curve: Curves.easeOutCubic);
-                                          },
-                                          child: Center(
-                                            child: Text(
-                                              'Collector',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .labelLarge
-                                                  ?.copyWith(
-                                                    color: _currentIndex == 0
-                                                        ? AppTheme.textDark
-                                                        : AppTheme.textLight,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                            ),
-                                          ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Community Resident',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.secondary,
+                                          letterSpacing: -0.3,
                                         ),
-                                      ),
-                                      Expanded(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            setState(() {
-                                              _currentIndex = 1;
-                                            });
-                                            _pageController.animateToPage(1,
-                                                duration: const Duration(
-                                                    milliseconds: 300),
-                                                curve: Curves.easeOutCubic);
-                                          },
-                                          child: Center(
-                                            child: Text(
-                                              'Resident',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .labelLarge
-                                                  ?.copyWith(
-                                                    color: _currentIndex == 1
-                                                        ? AppTheme.textDark
-                                                        : AppTheme.textLight,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              height: 360,
-                              child: PageView(
-                                controller: _pageController,
-                                onPageChanged: (index) {
-                                  setState(() {
-                                    _currentIndex = index;
-                                  });
-                                },
-                                children: [
-                                  // Collector Page
-                                  GlassmorphicContainer(
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Sync with local schedules, receive smart reminders, and keep your community clean.',
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: AppTheme.textLight,
+                                          height: 1.4,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  AnimatedButton(
+                                    text: 'Get Started',
+                                    onPressed: () => _selectRole(
+                                        AppConstants.residentRole),
                                     width: double.infinity,
-                                    padding: EdgeInsets.all(AppTheme.spacing8),
-                                    borderRadius: AppTheme.radiusL,
-                                    child: Column(
-                                      children: [
-                                        NatureHeroAnimation(
-                                          tag: 'collector_icon',
-                                          child: Container(
-                                            width: 80,
-                                            height: 80,
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  AppTheme.primary
-                                                      .withOpacity(0.1),
-                                                  AppTheme.primary
-                                                      .withOpacity(0.05),
-                                                ],
-                                                begin: Alignment.topLeft,
-                                                end: Alignment.bottomRight,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
-                                                color: AppTheme.primary
-                                                    .withOpacity(0.2),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: const Icon(
-                                              Icons.local_shipping_rounded,
-                                              size: 40,
-                                              color: AppTheme.primary,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          'Waste Collector',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                                color: AppTheme.primary,
-                                                letterSpacing: -0.3,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Manage collection routes, track pickups, and update community status in real-time.',
-                                          textAlign: TextAlign.center,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: AppTheme.textLight,
-                                                height: 1.4,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 20),
-                                        AnimatedButton(
-                                          text: 'Collector',
-                                          onPressed: () => _selectRole(
-                                              AppConstants.collectorRole),
-                                          width: double.infinity,
-                                          icon: Icons.arrow_forward_rounded,
-                                          isGradient: true,
-                                          gradientColors:
-                                              AppTheme.primaryGradient,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  // Resident Page
-                                  GlassmorphicContainer(
-                                    width: double.infinity,
-                                    padding: EdgeInsets.all(AppTheme.spacing8),
-                                    borderRadius: AppTheme.radiusL,
-                                    child: Column(
-                                      children: [
-                                        NatureHeroAnimation(
-                                          tag: 'resident_icon',
-                                          child: Container(
-                                            width: 80,
-                                            height: 80,
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                colors: [
-                                                  AppTheme.secondary
-                                                      .withOpacity(0.1),
-                                                  AppTheme.secondary
-                                                      .withOpacity(0.05),
-                                                ],
-                                                begin: Alignment.topLeft,
-                                                end: Alignment.bottomRight,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
-                                                color: AppTheme.secondary
-                                                    .withOpacity(0.2),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: const Icon(
-                                              Icons.home_rounded,
-                                              size: 40,
-                                              color: AppTheme.secondary,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          'Community Resident',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                                color: AppTheme.secondary,
-                                                letterSpacing: -0.3,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Sync with local schedules, receive smart reminders, and keep your community clean.',
-                                          textAlign: TextAlign.center,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: AppTheme.textLight,
-                                                height: 1.4,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 20),
-                                        AnimatedButton(
-                                          text: 'Resident',
-                                          onPressed: () => _selectRole(
-                                              AppConstants.residentRole),
-                                          width: double.infinity,
-                                          backgroundColor: AppTheme.secondary,
-                                          icon: Icons.arrow_forward_rounded,
-                                          isGradient: true,
-                                          gradientColors:
-                                              AppTheme.secondaryGradient,
-                                        ),
-                                      ],
-                                    ),
+                                    backgroundColor: AppTheme.secondary,
+                                    icon: Icons.arrow_forward_rounded,
+                                    isGradient: true,
+                                    gradientColors:
+                                        AppTheme.secondaryGradient,
                                   ),
                                 ],
                               ),

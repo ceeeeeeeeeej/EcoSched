@@ -8,7 +8,6 @@ let volumeChart = null;
 let routeChart = null;
 let wasteTypeChart = null;
 let coverageChart = null;
-let fillLevelTrendChart = null;
 let currentDateRange = 30;
 let currentVolumeChartType = 'line';
 
@@ -21,7 +20,6 @@ let analyticsData = {
 };
 
 // Map instance
-let sensorMap = null;
 let sensorSubscription = null;
 
 // Initialize analytics page
@@ -41,8 +39,6 @@ async function initializePage() {
     showLoadingState();
     await loadInitialData();
     initializeCharts();
-    initializeMap();
-    initializeFillLevelChart();
     updateUI();
     setupRealtimeSubscription();
     requestNotificationPermission();
@@ -136,7 +132,7 @@ function updateSensorMetrics() {
 
     // 4. Last Update Time
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
     document.getElementById('lastUpdateValue').textContent = timeStr;
     document.getElementById('lastUpdateChange').textContent = 'Real-time monitoring active';
 
@@ -342,111 +338,6 @@ function initializeCharts() {
 
 }
 
-// Initialize Leaflet map for sensors
-function initializeMap() {
-    const mapElement = document.getElementById('sensorMap');
-    if (!mapElement) return;
-
-    // Center on Tago, Surigao del Sur area
-    const tagoCenter = [9.0545, 126.4168];
-
-    // Initialize map
-    sensorMap = L.map('sensorMap').setView(tagoCenter, 13);
-
-    // Add Esri Satellite tiles
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EBP, and the GIS User Community',
-        maxZoom: 19
-    }).addTo(sensorMap);
-
-    // Add sensor markers
-    analyticsData.sensors.forEach(sensor => {
-        if (sensor.location_lat && sensor.location_lng) {
-            // Determine marker color based on fill level
-            let markerColor = 'green';
-            if (sensor.fill_level >= 80) markerColor = 'red';
-            else if (sensor.fill_level >= 60) markerColor = 'orange';
-            else if (sensor.fill_level >= 40) markerColor = 'yellow';
-
-            // Create custom icon
-            const icon = L.divIcon({
-                className: 'custom-marker',
-                html: `<div style="
-                    background-color: ${markerColor};
-                    width: 30px;
-                    height: 30px;
-                    border-radius: 50%;
-                    border: 3px solid white;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-weight: bold;
-                    font-size: 12px;
-                ">${sensor.fill_level}%</div>`,
-                iconSize: [30, 30],
-                iconAnchor: [15, 15]
-            });
-
-            // Create marker
-            const marker = L.marker([sensor.location_lat, sensor.location_lng], { icon })
-                .addTo(sensorMap);
-
-            // Create popup content
-            const lastEmptied = sensor.last_emptied
-                ? new Date(sensor.last_emptied).toLocaleDateString()
-                : 'Never';
-
-            marker.bindPopup(`
-                <div style="font-family: 'Inter', sans-serif; min-width: 200px;">
-                    <h4 style="margin: 0 0 10px 0; color: #1F2937; font-size: 14px;">
-                        <i class="fas fa-dumpster"></i> ${sensor.bin_id}
-                    </h4>
-                    <div style="font-size: 12px; color: #6B7280; line-height: 1.6;">
-                        <p style="margin: 5px 0;"><strong>Location:</strong> ${sensor.address}</p>
-                        <p style="margin: 5px 0;"><strong>Zone:</strong> ${sensor.zone}</p>
-                        <p style="margin: 5px 0;"><strong>Fill Level:</strong> 
-                            <span style="color: ${markerColor}; font-weight: bold;">${sensor.fill_level}%</span>
-                        </p>
-                        <p style="margin: 5px 0;"><strong>Status:</strong> ${sensor.status}</p>
-                        <p style="margin: 5px 0;"><strong>Last Emptied:</strong> ${lastEmptied}</p>
-                    </div>
-                </div>
-            `);
-        }
-    });
-
-    // Create heatmap data points from sensors
-    const heatmapData = analyticsData.sensors
-        .filter(s => s.location_lat && s.location_lng && s.status === 'active')
-        .map(sensor => {
-            // Intensity based on fill level (0-1 scale)
-            const intensity = sensor.fill_level / 100;
-            return [sensor.location_lat, sensor.location_lng, intensity];
-        });
-
-    // Add heatmap layer if we have data
-    if (heatmapData.length > 0) {
-        const heatLayer = L.heatLayer(heatmapData, {
-            radius: 35,
-            blur: 25,
-            maxZoom: 17,
-            max: 1.0,
-            gradient: {
-                0.0: 'green',
-                0.4: 'yellow',
-                0.6: 'orange',
-                0.8: 'red'
-            }
-        }).addTo(sensorMap);
-
-        console.log(`🔥 Heatmap layer added with ${heatmapData.length} data points`);
-    }
-
-    console.log(`🗺️ Map initialized with ${analyticsData.sensors.length} sensor markers`);
-}
-
 // Setup real-time subscription for sensor updates
 function setupRealtimeSubscription() {
     if (!realtime || !realtime.channel) {
@@ -471,8 +362,6 @@ function setupRealtimeSubscription() {
 
                     // Update UI components
                     updateSensorMetrics();
-                    updateMap();
-                    updateFillLevelChart();
 
                     console.log('✅ Sensor data refreshed in real-time');
                 }
@@ -482,83 +371,6 @@ function setupRealtimeSubscription() {
         console.log('📡 Real-time sensor subscription active');
     } catch (error) {
         console.error('❌ Failed to setup real-time subscription:', error);
-    }
-}
-
-// Update map with new sensor data
-function updateMap() {
-    if (!sensorMap) return;
-
-    // Clear existing markers and heatmap
-    sensorMap.eachLayer((layer) => {
-        if (layer instanceof L.Marker || layer instanceof L.HeatLayer) {
-            sensorMap.removeLayer(layer);
-        }
-    });
-
-    // Re-add markers
-    analyticsData.sensors.forEach(sensor => {
-        if (sensor.location_lat && sensor.location_lng) {
-            let markerColor = 'green';
-            if (sensor.fill_level >= 80) markerColor = 'red';
-            else if (sensor.fill_level >= 60) markerColor = 'orange';
-            else if (sensor.fill_level >= 40) markerColor = 'yellow';
-
-            const icon = L.divIcon({
-                className: 'custom-marker',
-                html: `<div style="
-                    background-color: ${markerColor};
-                    width: 30px;
-                    height: 30px;
-                    border-radius: 50%;
-                    border: 3px solid white;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-weight: bold;
-                    font-size: 12px;
-                ">${sensor.fill_level}%</div>`,
-                iconSize: [30, 30],
-                iconAnchor: [15, 15]
-            });
-
-            const marker = L.marker([sensor.location_lat, sensor.location_lng], { icon }).addTo(sensorMap);
-
-            const lastEmptied = sensor.last_emptied ? new Date(sensor.last_emptied).toLocaleDateString() : 'Never';
-            marker.bindPopup(`
-                <div style="font-family: 'Inter', sans-serif; min-width: 200px;">
-                    <h4 style="margin: 0 0 10px 0; color: #1F2937; font-size: 14px;">
-                        <i class="fas fa-dumpster"></i> ${sensor.bin_id}
-                    </h4>
-                    <div style="font-size: 12px; color: #6B7280; line-height: 1.6;">
-                        <p style="margin: 5px 0;"><strong>Location:</strong> ${sensor.address}</p>
-                        <p style="margin: 5px 0;"><strong>Zone:</strong> ${sensor.zone}</p>
-                        <p style="margin: 5px 0;"><strong>Fill Level:</strong> 
-                            <span style="color: ${markerColor}; font-weight: bold;">${sensor.fill_level}%</span>
-                        </p>
-                        <p style="margin: 5px 0;"><strong>Status:</strong> ${sensor.status}</p>
-                        <p style="margin: 5px 0;"><strong>Last Emptied:</strong> ${lastEmptied}</p>
-                    </div>
-                </div>
-            `);
-        }
-    });
-
-    // Re-add heatmap
-    const heatmapData = analyticsData.sensors
-        .filter(s => s.location_lat && s.location_lng && s.status === 'active')
-        .map(sensor => [sensor.location_lat, sensor.location_lng, sensor.fill_level / 100]);
-
-    if (heatmapData.length > 0) {
-        L.heatLayer(heatmapData, {
-            radius: 35,
-            blur: 25,
-            maxZoom: 17,
-            max: 1.0,
-            gradient: { 0.0: 'green', 0.4: 'yellow', 0.6: 'orange', 0.8: 'red' }
-        }).addTo(sensorMap);
     }
 }
 
@@ -709,78 +521,6 @@ async function storeNotification(title, message, priority, criticalBins) {
     }
 
     console.log('📝 Notification stored locally:', notification);
-}
-
-// Initialize fill level trend chart
-function initializeFillLevelChart() {
-    const chartCanvas = document.getElementById('fillLevelTrendChart');
-    if (!chartCanvas) return;
-
-    // Generate mock historical data (in real scenario, fetch from database)
-    const labels = [];
-    const datasets = [];
-
-    // Get last 7 days
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    }
-
-    // Create dataset for each sensor
-    analyticsData.sensors.slice(0, 3).forEach((sensor, index) => {
-        const colors = ['rgb(16, 185, 129)', 'rgb(59, 130, 246)', 'rgb(251, 146, 60)'];
-        const data = [];
-
-        // Use current fill level as placeholder for history (until historical tracking is implemented)
-        for (let i = 0; i < 7; i++) {
-            data.push(sensor.fill_level);
-        }
-
-        datasets.push({
-            label: sensor.bin_id,
-            data: data,
-            borderColor: colors[index % colors.length],
-            backgroundColor: `${colors[index % colors.length].replace('rgb', 'rgba').replace(')', ', 0.1)')}`,
-            tension: 0.4,
-            fill: true
-        });
-    });
-
-    fillLevelTrendChart = new Chart(chartCanvas, {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: true, position: 'top' },
-                tooltip: {
-                    callbacks: {
-                        label: (context) => `${context.dataset.label}: ${Math.round(context.parsed.y)}%`
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: { callback: (value) => `${value}%` }
-                }
-            }
-        }
-    });
-
-    console.log('📈 Fill level trend chart initialized');
-}
-
-// Update fill level chart with new data
-function updateFillLevelChart() {
-    if (!fillLevelTrendChart) return;
-
-    // Update chart data (in real scenario, fetch new historical data)
-    fillLevelTrendChart.update();
 }
 
 // Export functions to global scope
@@ -1015,4 +755,5 @@ window.generateReport = generateReport;
 window.updateDateRange = updateDateRange;
 window.toggleChartType = toggleChartType;
 window.createCustomReport = createCustomReport;
+window.analyticsData = analyticsData;  // Expose for heatmap auto-populate
 // Removed unused exports

@@ -593,3 +593,31 @@
         flex-direction: column;
     }
 }
+
+/* Password Toggle Styles */
+.password-input-wrapper {
+    position: relative;
+    width: 100%;
+    display: block;
+}
+
+.password-input-wrapper input {
+    padding-right: 45px !important;
+}
+
+.password-input-wrapper .toggle-password {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    color: #6b7280;
+    transition: all 0.2s;
+    font-size: 1.1rem;
+    z-index: 5;
+}
+
+.password-input-wrapper .toggle-password:hover {
+    color: #10b981;
+    transform: translateY(-50%) scale(1.1);
+}

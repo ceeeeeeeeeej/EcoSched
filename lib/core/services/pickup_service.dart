@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ecosched/core/services/notification_service.dart';
 import '../config/supabase_config.dart';
+import '../localization/translations.dart';
 
 class PickupService extends ChangeNotifier {
   final SupabaseClient _supabase = SupabaseConfig.client;
@@ -11,11 +12,14 @@ class PickupService extends ChangeNotifier {
   final Map<String, List<Map<String, dynamic>>> _fixedSchedules = {};
   final Set<String> _notifiedOnTheWayIds = {};
   final Set<String> _notifiedRescheduledIds = {};
+  final Set<String> _notifiedStartedZonesToday = {};
   List<Map<String, dynamic>> _lastStreamedSchedules = [];
   bool _isLastCollector = false;
 
   List<Map<String, dynamic>> get scheduledPickups =>
       List.unmodifiable(_scheduledPickups);
+
+  String? get currentServiceArea => _currentServiceArea;
 
   /// Returns a set of normalized dates (midnight) that have scheduled pickups.
   Set<DateTime> get scheduledDates => _scheduledPickups
@@ -28,57 +32,7 @@ class PickupService extends ChangeNotifier {
     return scheduledDates.contains(normalized);
   }
 
-  Map<String, dynamic>? _defaultFixedSchedule(String serviceAreaKey) {
-    if (serviceAreaKey == 'victoria') {
-      return {
-        'area': 'victoria',
-        'scheduleName': 'Victoria Eco Collection',
-        'days': ['monday', 'tuesday'],
-        'time': '08:00',
-        'active': true,
-      };
-    }
 
-    if (serviceAreaKey == 'dayo-an') {
-      return {
-        'area': 'dayo-an',
-        'scheduleName': 'Dayo-an Eco Collection',
-        'days': ['saturday'],
-        'time': '08:00',
-        'active': true,
-      };
-    }
-
-    if (serviceAreaKey == 'mahayag') {
-      return {
-        'area': 'mahayag',
-        'scheduleName': 'Mahayag Waste Collection',
-        'days': [
-          'monday',
-          'tuesday',
-          'wednesday',
-          'thursday',
-          'friday',
-          'saturday',
-          'sunday'
-        ],
-        'time': '08:00',
-        'active': true,
-      };
-    }
-
-    if (serviceAreaKey == 'visitors') {
-      return {
-        'area': 'visitors',
-        'scheduleName': 'General Information',
-        'days': [],
-        'time': '--:--',
-        'active': false,
-      };
-    }
-
-    return null;
-  }
 
   /// Retrieves all pickups assigned on the provided day.
   List<Map<String, dynamic>> pickupsForDate(DateTime date) {
@@ -124,7 +78,7 @@ class PickupService extends ChangeNotifier {
 
   Future<void> loadSchedulesForServiceArea(String serviceArea,
       {bool isCollector = false, bool forceReload = false}) async {
-    final normalizedArea = serviceArea.trim().toLowerCase();
+    final normalizedArea = serviceArea.trim();
 
     if (!forceReload &&
         _currentServiceArea == normalizedArea &&
@@ -134,14 +88,18 @@ class PickupService extends ChangeNotifier {
 
     await _scheduleSubscription?.cancel();
     await _fixedScheduleSubscription?.cancel();
+    // Only clear trackers if the barangay ACTUALLY changed
+    if (_currentServiceArea != normalizedArea) {
+      _notifiedOnTheWayIds.clear();
+      _notifiedRescheduledIds.clear();
+    }
+
     _currentServiceArea = normalizedArea;
     _isLastCollector = isCollector;
 
     // Clear stale data when switching areas
     _lastStreamedSchedules.clear();
     _scheduledPickups.clear();
-    _notifiedOnTheWayIds.clear();
-    _notifiedRescheduledIds.clear();
     notifyListeners();
 
     // Load fixed schedules first
@@ -151,31 +109,30 @@ class PickupService extends ChangeNotifier {
     _scheduleSubscription = _supabase
         .from(SupabaseConfig.collectionSchedulesTable)
         .stream(primaryKey: ['id'])
-        .eq('zone',
-            _currentServiceArea!) // Should match lowercase in DB if standardized
+        // Removed zone filter to allow multi-area notifications
         .listen(
-          (data) {
-            if (kDebugMode) {
-              print(
-                  '📡 PickupService: Received ${data.length} schedules for $_currentServiceArea');
-              if (data.isNotEmpty) {
-                print('   - Sample zone in DB: ${data.first['zone']}');
-                print(
-                    '   - Sample scheduled_date: ${data.first['scheduled_date']}');
-              }
-            }
-            _lastStreamedSchedules = data
-                .map((doc) => _mapScheduleDoc(doc['id'].toString(), doc))
-                .toList();
+      (data) {
+        if (kDebugMode) {
+          print(
+              '📡 PickupService: Received ${data.length} schedules for $_currentServiceArea');
+          if (data.isNotEmpty) {
+            print('   - Sample zone in DB: ${data.first['zone']}');
+            print(
+                '   - Sample scheduled_date: ${data.first['scheduled_date']}');
+          }
+        }
+        _lastStreamedSchedules = data
+            .map((doc) => _mapScheduleDoc(doc['id'].toString(), doc))
+            .toList();
 
-            _rebuildScheduledPickups(isCollector: isCollector);
-          },
-          onError: (e) {
-            if (kDebugMode) {
-              print('Failed to load schedules for $serviceArea: $e');
-            }
-          },
-        );
+        _rebuildScheduledPickups(isCollector: isCollector);
+      },
+      onError: (e) {
+        if (kDebugMode) {
+          print('Failed to load schedules for $serviceArea: $e');
+        }
+      },
+    );
   }
 
   Future<void> _loadFixedSchedules() async {
@@ -266,60 +223,8 @@ class PickupService extends ChangeNotifier {
     // Schedule reminders for upcoming pickups
     _scheduleReminders(isCollector: actualIsCollector);
 
-    // Notify residents if collector is on the way
-    if (!actualIsCollector) {
-      for (final item in sortedItems) {
-        final id = item['id'].toString();
-        final status = item['status'].toString();
-        if (status == 'on_the_way' && !_notifiedOnTheWayIds.contains(id)) {
-          _notifiedOnTheWayIds.add(id);
-          NotificationService.showNotification(
-              id: id.hashCode & 0x7FFFFFFF,
-              title: '🚛 Collector is Nearby!',
-              body:
-                  'Hold tight! The collector is on the way to ${item['address']}.');
-        }
-
-        // Notify residents of RESCHEDULES
-        final isRescheduled = item['isRescheduled'] == true;
-        if (isRescheduled && !_notifiedRescheduledIds.contains(id)) {
-          _notifiedRescheduledIds.add(id);
-          // Construct a friendly message
-          final dateObj = item['date'] as DateTime;
-          final dateStr = "${dateObj.month}/${dateObj.day} at ${item['time']}";
-
-          // 1. Show Local Notification
-          NotificationService.showNotification(
-            id: (id.hashCode + 200) & 0x7FFFFFFF,
-            title: '📅 Schedule Change',
-            body:
-                'Heads up! Collection for ${item['address']} is moved to $dateStr.',
-          );
-
-          // Note: We no longer persist this to the Database here because
-          // the Admin Dashboard (schedules.js) already sends a real-time notification
-          // when a schedule is updated, which is picked up by ReminderService.
-        }
-      }
-    } else {
-      // Logic for Collector (Reschedule Alerts)
-      for (final item in sortedItems) {
-        final id = item['id'].toString();
-        final isRescheduled = item['isRescheduled'] == true;
-
-        if (isRescheduled && !_notifiedRescheduledIds.contains(id)) {
-          _notifiedRescheduledIds.add(id);
-          NotificationService.showNotification(
-            id: (id.hashCode + 100) &
-                0x7FFFFFFF, // Offset ID to avoid collision
-            title: '📅 Schedule Update',
-            body:
-                'Attention: ${item['address']} collection has been rescheduled.',
-          );
-        }
-      }
-    }
-
+    // Notify residents if scheduled items changed (Wait: _scheduleReminders already does this)
+    // We removed the old direct NotificationService loop here to prevent flooding
     notifyListeners();
   }
 
@@ -328,10 +233,8 @@ class PickupService extends ChangeNotifier {
     Set<DateTime> excludedDates,
   ) {
     final key = serviceArea.toLowerCase();
-    final List<Map<String, dynamic>> fixedList = _fixedSchedules[key] ??
-        (_defaultFixedSchedule(key) != null
-            ? [_defaultFixedSchedule(key)!]
-            : []);
+    // Only use schedules from the database — no hardcoded fallbacks.
+    final List<Map<String, dynamic>> fixedList = _fixedSchedules[key] ?? [];
 
     if (fixedList.isEmpty) return [];
 
@@ -424,28 +327,110 @@ class PickupService extends ChangeNotifier {
       originalDate = rawOriginalDate.toLocal();
     }
 
-    // Extract time string from date
+    // Extract time string from local date (Proper Local Time)
     String timeStr = '';
     if (rawDate != null) {
-      if (rawDate is String) {
-        final parts = rawDate.split('T');
-        if (parts.length > 1) {
-          timeStr = parts.last.substring(0, 5);
+      final hour =
+          date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
+      final ampm = date.hour >= 12 ? 'PM' : 'AM';
+      timeStr =
+          "${hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} $ampm";
+    }
+
+    final String description = (data['description'] ?? '').toString();
+    final String nameField = (data['name'] ?? '').toString();
+    String? residentName;
+    String? pickupLocation;
+    String? residentAge;
+    String? specialNotes;
+    String? wasteType;
+    String? estimatedQuantityFromDesc;
+
+    // Extract waste type from the 'name' column: 'Special Collection: {wasteType}'
+    if (nameField.toLowerCase().startsWith('special collection:')) {
+      wasteType = nameField
+          .replaceFirst(
+              RegExp(r'special collection:\s*', caseSensitive: false), '')
+          .trim();
+    }
+
+    // Parse description: 'Location: {addr}, Resident: {name}, Age: {age}, Quantity: {qty}, Message: {msg}'
+    if (description.contains('Location:') &&
+        description.contains('Resident:')) {
+      try {
+        final locPart =
+            description.split('Location:').last.split(', Resident:').first;
+        final afterResident = description.split('Resident:').last;
+        pickupLocation = locPart.trim();
+
+        // Extract Name
+        if (afterResident.contains(', Age:')) {
+          residentName = afterResident.split(', Age:').first.trim();
+          final afterAge = afterResident.split(', Age:').last;
+
+          // Extract Age
+          if (afterAge.contains(', Quantity:')) {
+            residentAge = afterAge.split(', Quantity:').first.trim();
+            final afterQty = afterAge.split(', Quantity:').last;
+            if (afterQty.contains(', Message:')) {
+              // We have quantity AND message
+            } else {
+              residentAge = afterAge.split(',').first.trim();
+            }
+          } else if (afterAge.contains(', Message:')) {
+            residentAge = afterAge.split(', Message:').first.trim();
+          } else {
+            residentAge = afterAge.split(',').first.trim();
+          }
+        } else if (afterResident.contains(', Message:')) {
+          residentName = afterResident.split(', Message:').first.trim();
+        } else {
+          residentName = afterResident.split(',').first.trim();
         }
-      } else if (rawDate is DateTime) {
-        timeStr =
-            "${rawDate.hour.toString().padLeft(2, '0')}:${rawDate.minute.toString().padLeft(2, '0')}";
+
+        // Extract Quantity
+        if (description.contains(', Quantity:')) {
+          final afterQty = description.split(', Quantity:').last;
+          final qtyRaw = afterQty.contains(', Message:')
+              ? afterQty.split(', Message:').first.trim()
+              : afterQty.split(',').first.trim();
+          if (qtyRaw.isNotEmpty) estimatedQuantityFromDesc = qtyRaw;
+        }
+
+        // Extract Message
+        if (description.contains(', Message:')) {
+          specialNotes = description.split(', Message:').last.trim();
+        }
+      } catch (e) {
+        if (kDebugMode) print('Error parsing special collection details: $e');
       }
     }
 
+    // Append zone/barangay to location so it shows "loc, street, Barangay"
+    final String zone = (data['zone'] ?? '').toString();
+    final String fullLocation =
+        (pickupLocation != null && pickupLocation.isNotEmpty && zone.isNotEmpty)
+            ? '$pickupLocation, $zone'
+            : (pickupLocation ?? zone);
+
     return {
       'id': id,
-      'address': (data['zone'] ?? 'Assigned Area').toString(),
+      'address': zone.isNotEmpty ? zone : 'Assigned Area',
       'type': 'Eco Collection',
+      'isSpecialCollection': nameField.toLowerCase().contains('special') ||
+          description.toLowerCase().contains('special'),
+      'description': description,
+      'wasteType': wasteType,
+      'estimatedQuantity':
+          estimatedQuantityFromDesc ?? data['estimated_quantity']?.toString(),
+      'specialNotes': specialNotes ?? data['special_instructions']?.toString(),
+      'residentName': residentName,
+      'residentAge': residentAge,
+      'pickupLocation': fullLocation,
       'time': timeStr.isNotEmpty ? timeStr : '08:00',
       'date': date,
       'status': (data['status'] ?? 'Scheduled').toString(),
-      'locationNote': (data['description'] ?? '').toString(),
+      'locationNote': description,
       'assignedBy': 'Admin',
       'isRescheduled': data['is_rescheduled'] ?? false,
       'originalDate': originalDate,
@@ -530,59 +515,153 @@ class PickupService extends ChangeNotifier {
           '🛠️ PickupService: _scheduleReminders called (isCollector: $isCollector)');
       print('   - Scheduled pickups count: ${_scheduledPickups.length}');
     }
-    final now = DateTime.now();
 
+    // 1. Clear ALL existing scheduled notifications to avoid duplicates/stale alerts
+    // (This ensures when we rebuild, we don't have old reminders for deleted/changed schedules)
+    await NotificationService.cancelAllScheduledNotifications();
+
+    final now = DateTime.now();
+    // --- ULTIMATE PRE-REMINDER DEDUPLICATION (CONSTANT IDENTITY) ---
+    // If we have 100 duplicate entries, process only ONE per 4-hour window per area.
+    // --- ULTIMATE PRE-REMINDER DEDUPLICATION (TRUE AREA STABILIZATION) ---
+    // If we have "Victoria", "Victoria St", "Victoria Area", process only ONE.
+    final Map<String, Map<String, dynamic>> dedupedMap = {};
     for (final pickup in _scheduledPickups) {
-      final date = pickup['date'] as DateTime;
-      final type = pickup['type'] as String;
+      final String rawAddress = (pickup['address'] ?? 'Unknown').toString();
+      final DateTime date = pickup['date'] as DateTime;
+
+      // Normalize Address: Extract the main Barangay name
+      // (Handles "Victoria, High Street" -> "victoria")
+      final String baseArea = rawAddress.split(',')[0].toLowerCase().trim();
+
+      // Calculate a 4-hour slot ID (0-3, 4-7, 8-11, etc.)
+      final int fourHourSlot = date.hour ~/ 4;
+      final slotKey = "${date.year}_${date.month}_${date.day}_$fourHourSlot";
+      final String key = "${baseArea}_$slotKey";
+
+      final existing = dedupedMap[key];
+      if (existing == null) {
+        dedupedMap[key] = pickup;
+      } else {
+        // Prioritize 'on_the_way' status over 'Scheduled'
+        final String newStatus =
+            pickup['status']?.toString().toLowerCase() ?? '';
+        final String oldStatus =
+            existing['status']?.toString().toLowerCase() ?? '';
+        if (newStatus == 'on_the_way' && oldStatus != 'on_the_way') {
+          dedupedMap[key] = pickup;
+        }
+      }
+    }
+
+    for (final pickup in dedupedMap.values) {
+      final String originalAddress =
+          (pickup['address'] ?? 'Unknown').toString();
+      final String baseArea = originalAddress.split(',')[0].trim();
+      final String type = pickup['type']?.toString() ?? 'Waste Pickup';
+      final DateTime date = pickup['date'] as DateTime;
+      final String timeStr = pickup['time']?.toString() ?? '8:00';
+
+      // --- RESIDENT REMINDERS ---
+
+      final String baseAreaLower = baseArea.toLowerCase();
+      final bool isHomeBarangay = _currentServiceArea != null &&
+          baseAreaLower.contains(_currentServiceArea!.toLowerCase());
+
+      // 4-Hour Stable ID: Forces Android to stack notifications for this slot
+      final int fourHourSlot = date.hour ~/ 4;
+      final slotKey = "${date.year}_${date.month}_${date.day}_$fourHourSlot";
+      final String contentKey = "${baseAreaLower}_$slotKey";
+
+      // STABLE ID: Based ONLY on Barangay Name and Time Slot.
+      // This is the absolute guarantee that your phone will only show one row!
+      final int stableId = (contentKey.hashCode & 0x7FFFFFFF);
 
       if (isCollector) {
-        // Collector: 30 minutes before
+        // --- COLLECTOR REMINDERS ---
+        // 1. 30 minutes before
         final reminderDate = date.subtract(const Duration(minutes: 30));
         if (reminderDate.isAfter(now)) {
-          final id = ((date.millisecondsSinceEpoch ~/ 1000) + type.hashCode) &
-              0x7FFFFFFF;
           await NotificationService.scheduleNotification(
-            id: id,
-            title: '🚛 Collection Starting Soon!',
-            body:
-                'You have a collection scheduled for ${pickup['address']} in 30 minutes.',
+            id: stableId + 10,
+            title:
+                Translations.getBilingualText('🚛 Collection Starting Soon!'),
+            body: Translations.getBilingualText(
+                'You have a collection scheduled for $baseArea in 30 minutes.'),
             scheduledDate: reminderDate,
-            payload: 'schedule_$id',
+            payload: 'collector_schedule_$stableId',
           );
         }
       } else {
-        // Resident: 6:00 PM the day before
-        final dayBeforeDate = DateTime(date.year, date.month, date.day)
-            .subtract(const Duration(days: 1))
-            .add(const Duration(hours: 18)); // 6:00 PM
+        // --- RESIDENT REMINDERS (Unified Alert) ---
 
-        if (dayBeforeDate.isAfter(now)) {
-          final id =
-              ((date.millisecondsSinceEpoch ~/ 1000) + type.hashCode + 1) &
-                  0x7FFFFFFF;
-          await NotificationService.scheduleNotification(
-            id: id,
-            title: '🗓️ Eco Collection Tomorrow',
-            body:
-                'Heads up! Your eco collection is scheduled for tomorrow at ${pickup['time']}.',
-            scheduledDate: dayBeforeDate,
-            payload: 'schedule_day_before_$id',
+        // 1. Instant Alert / "On the way"
+        final bool isToday = _normalizeDate(date) == _normalizeDate(now);
+        final bool statusActive =
+            pickup['status']?.toString().toLowerCase() == 'on_the_way' &&
+                isToday;
+        final bool timeActive = date.isAfter(now) &&
+            date.difference(now).inMinutes <= 30 &&
+            isToday;
+
+        if ((statusActive || timeActive) &&
+            !_notifiedOnTheWayIds.contains(contentKey)) {
+          _notifiedOnTheWayIds.add(contentKey);
+          final String title =
+              isHomeBarangay ? '🚛 Truck Coming Now!' : '🚛 Collector On Route';
+          final String body = isHomeBarangay
+              ? 'Get ready! $type is starting in $baseArea very soon.'
+              : 'The collector is on the way to $baseArea!';
+
+          await NotificationService.showNotification(
+            id: stableId + 1,
+            title: title,
+            body: body,
+            payload: 'immediate_schedule_$stableId',
           );
         }
 
-        // Resident: 2 hours before
+        // --- STOP HERE FOR NEIGHBORING BARANGAYS ---
+        // As requested, only "On the way" notifications are sent for other areas.
+        if (!isHomeBarangay) continue;
+
+        // 2. 2 hours before (Only for Home)
         final hoursBeforeDate = date.subtract(const Duration(hours: 2));
         if (hoursBeforeDate.isAfter(now)) {
-          final id =
-              ((date.millisecondsSinceEpoch ~/ 1000) + type.hashCode + 2) &
-                  0x7FFFFFFF;
           await NotificationService.scheduleNotification(
-            id: id,
-            title: '🚛 Truck En Route!',
-            body: 'Collection in ${pickup['address']} scheduled in 2 hours.',
+            id: stableId + 2,
+            title: Translations.getBilingualText(
+                '🛣️ Put your garbage in designated area'),
+            body: Translations.getBilingualText(
+                'Your collection in $baseArea is scheduled in 2 hours. Get ready!'),
             scheduledDate: hoursBeforeDate,
-            payload: 'schedule_hours_before_$id',
+            payload: 'resident_schedule_soon_$stableId',
+          );
+        }
+
+        // 3. Exactly on Time
+        if (date.isAfter(now)) {
+          await NotificationService.scheduleNotification(
+            id: stableId + 3,
+            title: Translations.getBilingualText('⏰ Collection Time'),
+            body: Translations.getBilingualText(
+                "It's already time! The collector will notify you when they start their route."),
+            scheduledDate: date,
+            payload: 'resident_schedule_exact_$stableId',
+          );
+        }
+
+        // 4. Day Before (at 6:00 PM) (Only for Home)
+        final dayBeforeDate = DateTime(date.year, date.month, date.day, 18, 0)
+            .subtract(const Duration(days: 1));
+        if (dayBeforeDate.isAfter(now)) {
+          await NotificationService.scheduleNotification(
+            id: stableId + 4,
+            title: Translations.getBilingualText('♻️ Collection Tomorrow'),
+            body: Translations.getBilingualText(
+                'Heads up! Your waste collection in $baseArea is scheduled for tomorrow at $timeStr. prepare your garbage'),
+            scheduledDate: dayBeforeDate,
+            payload: 'resident_schedule_tomorrow_$stableId',
           );
         }
       }
@@ -615,6 +694,15 @@ class PickupService extends ChangeNotifier {
   /// Notifies admins and residents that a collector has started their session.
   Future<void> notifyCollectorStarted(String collectorName, String zone) async {
     try {
+      final String todayKey =
+          "${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}_$zone";
+      if (_notifiedStartedZonesToday.contains(todayKey)) {
+        if (kDebugMode)
+          print('ℹ️ Notification for $zone already sent today. Skipping.');
+        return;
+      }
+      _notifiedStartedZonesToday.add(todayKey);
+
       // Find all admin users to notify
       final admins = await _supabase
           .from(SupabaseConfig.usersTable)
@@ -626,11 +714,11 @@ class PickupService extends ChangeNotifier {
           .from(SupabaseConfig.usersTable)
           .select('id')
           .eq('role', 'resident')
-          .filter('barangay', 'ilike',
-              '%$zone%'); // Allow partial matches (e.g., 'Dayo-An' vs 'dayo-an')
+          .filter('barangay', 'ilike', '%$zone%');
 
       final List<Map<String, dynamic>> allNotifications = [];
       final now = DateTime.now().toIso8601String();
+      final todayDate = DateTime.now().toIso8601String().split('T').first;
 
       if (admins.isNotEmpty) {
         allNotifications.addAll(admins.map((admin) {
@@ -639,25 +727,40 @@ class PickupService extends ChangeNotifier {
             'title': 'Collection Started',
             'message':
                 'Collector $collectorName has started collection in $zone.',
-            'type': 'alert', // Matches schema type: info, warning, alert
+            'type': 'alert',
             'read': false,
             'created_at': now,
+            'barangay': zone,
           };
         }));
       }
 
       if (residents.isNotEmpty) {
-        allNotifications.addAll(residents.map((resident) {
-          return {
-            'user_id': resident['id'],
-            'title': 'Collection Started',
+        for (var resident in residents) {
+          final residentId = resident['id'];
+
+          // --- CLEANUP DUPLICATES ---
+          // Delete any generic "Starting Now" alerts from today for this user
+          // so they only see the "Incoming" one.
+          await _supabase
+              .from(SupabaseConfig.notificationsTable)
+              .delete()
+              .eq('user_id', residentId)
+              .eq('barangay', zone)
+              .ilike('title', '%Starting Now%')
+              .gte('created_at', '${todayDate}T00:00:00Z');
+
+          allNotifications.add({
+            'user_id': residentId,
+            'title': 'Collector is Incoming! 🚚',
             'message':
-                'Collector $collectorName has started waste collection in your area ($zone). Please prepare your bins.',
+                'Stay alert! Collector $collectorName is on the way to $zone. Your collection is starting soon!',
             'type': 'info',
             'read': false,
             'created_at': now,
-          };
-        }));
+            'barangay': zone,
+          });
+        }
       }
 
       if (allNotifications.isNotEmpty) {
@@ -673,6 +776,12 @@ class PickupService extends ChangeNotifier {
   }
 
   @override
+  void dispose() {
+    _scheduleSubscription?.cancel();
+    _fixedScheduleSubscription?.cancel();
+    super.dispose();
+  }
+}
   void dispose() {
     _scheduleSubscription?.cancel();
     _fixedScheduleSubscription?.cancel();

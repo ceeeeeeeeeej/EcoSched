@@ -3,14 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'dart:ui';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:google_nav_bar/google_nav_bar.dart';
-
 import '../../../core/theme/app_theme.dart';
+import '../../../core/localization/translations.dart';
+import 'package:google_nav_bar/google_nav_bar.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../core/utils/animations.dart';
-import '../../../core/providers/app_state_provider.dart';
 import '../../../core/services/pickup_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/reminder_service.dart';
@@ -20,12 +19,18 @@ import '../../../widgets/premium_app_bar.dart';
 import '../../../widgets/live_scan_screen.dart';
 import '../../../widgets/gradient_background.dart';
 import '../../../widgets/modern_card.dart';
-import '../widgets/schedule_card.dart';
 import 'feedback_screen.dart';
+import 'resident_location_map_screen.dart';
 import 'special_collection_list_screen.dart';
+import '../../../core/routes/app_router.dart';
 
 class ResidentDashboardScreen extends StatefulWidget {
-  const ResidentDashboardScreen({super.key});
+  final int initialNavIndex;
+
+  const ResidentDashboardScreen({
+    super.key,
+    this.initialNavIndex = 0,
+  });
 
   @override
   State<ResidentDashboardScreen> createState() =>
@@ -39,23 +44,51 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    currentNavIndex = widget.initialNavIndex;
+    currentPage = _mapNavIndexToPageIndex(widget.initialNavIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authService = Provider.of<AuthService>(context, listen: false);
-      final user = authService.user;
-      final serviceArea = user?['serviceArea'] ??
-          user?['barangay'] ??
-          user?['location'] ??
-          'victoria';
-      final String effectiveArea =
-          serviceArea.toString().split(',')[0].trim().toLowerCase();
 
-      if (kDebugMode) {
-        print(
-            '🏠 ResidentDashboard: Initializing for Area: $effectiveArea (raw: $serviceArea)');
-        print('🏠 User Data: $user');
+      void initLogic() {
+        if (!mounted) return;
+        // Safety check: redirect to location selection if no barangay is selected
+        if (!authService.hasBarangaySelected) {
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            AppRoutes.residentLocationSelection,
+            (route) => false,
+          );
+          return;
+        }
+
+        final user = authService.user;
+        final serviceArea = user?['serviceArea'] ??
+            user?['barangay'] ??
+            user?['location'] ??
+            'victoria';
+        final String effectiveArea =
+            serviceArea.toString().split(',')[0].trim();
+
+        if (kDebugMode) {
+          print(
+              '🏠 ResidentDashboard: Initializing for Area: $effectiveArea (raw: $serviceArea)');
+          print('🏠 User Data: $user');
+        }
+        Provider.of<PickupService>(context, listen: false)
+            .loadSchedulesForServiceArea(effectiveArea);
       }
-      Provider.of<PickupService>(context, listen: false)
-          .loadSchedulesForServiceArea(effectiveArea);
+
+      if (authService.isAuthCheckComplete) {
+        initLogic();
+      } else {
+        void listener() {
+          if (authService.isAuthCheckComplete) {
+            authService.removeListener(listener);
+            initLogic();
+          }
+        }
+
+        authService.addListener(listener);
+      }
     });
   }
 
@@ -101,26 +134,26 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
                   tabBackgroundColor: AppTheme.primary,
                   tabBorderRadius: AppTheme.radiusL,
                   color: isDark ? Colors.grey[400] : Colors.grey[600],
-                  tabs: const [
+                  tabs: [
                     GButton(
                       icon: Icons.home_rounded,
-                      text: 'Home',
+                      text: context.tr('home'),
                     ),
                     GButton(
                       icon: Icons.feedback_rounded,
-                      text: 'Feedback',
+                      text: context.tr('feedback'),
                     ),
                     GButton(
                       icon: Icons.camera_rounded,
-                      text: 'Scan',
+                      text: context.tr('scan'),
                     ),
                     GButton(
                       icon: Icons.local_shipping_rounded,
-                      text: 'Special',
+                      text: context.tr('special'),
                     ),
                     GButton(
                       icon: Icons.notifications_rounded,
-                      text: 'Alerts',
+                      text: context.tr('alerts'),
                     ),
                   ],
                   selectedIndex: currentNavIndex,
@@ -374,10 +407,14 @@ class _HomePage extends StatelessWidget {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.eco_rounded, color: AppTheme.textInverse, size: 28),
+            Image.asset(
+              'assets/images/ecosched_logo.png',
+              height: 28,
+              fit: BoxFit.contain,
+            ),
             const SizedBox(width: 8),
             Text(
-              'EcoSched',
+              context.tr('app_title'),
               style: AppTheme.titleLarge.copyWith(
                 color: AppTheme.textInverse,
                 fontWeight: FontWeight.w800,
@@ -387,19 +424,14 @@ class _HomePage extends StatelessWidget {
           ],
         ),
         actions: [
-          Consumer<AppStateProvider>(
-            builder: (context, appState, _) {
-              final isDark = Theme.of(context).brightness == Brightness.dark;
-              return IconButton(
-                tooltip:
-                    isDark ? 'Switch to light mode' : 'Switch to dark mode',
-                icon: Icon(isDark
-                    ? Icons.light_mode_rounded
-                    : Icons.dark_mode_rounded),
-                onPressed: () {
-                  appState
-                      .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
-                },
+          IconButton(
+            tooltip: context.tr('bin_location'),
+            icon: const Icon(Icons.location_on_rounded),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const ResidentLocationMapScreen(),
+                ),
               );
             },
           ),
@@ -485,7 +517,13 @@ class _HomePage extends StatelessWidget {
 
         final collectionDate = nextCollection['date'] as DateTime;
         final now = DateTime.now();
-        final daysUntil = collectionDate.difference(now).inDays;
+
+        // Calculate daysUntil based on standard calendar dates (ignoring time)
+        // so that 'tomorrow' always shows as 1 day instead of 0 days.
+        final today = DateTime(now.year, now.month, now.day);
+        final targetDate = DateTime(
+            collectionDate.year, collectionDate.month, collectionDate.day);
+        final daysUntil = targetDate.difference(today).inDays;
         final isRescheduled = nextCollection['isRescheduled'] ?? false;
         final rescheduledReason = nextCollection['rescheduledReason'] ?? '';
 
@@ -536,8 +574,8 @@ class _HomePage extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   isRescheduled
-                                      ? 'Collection Rescheduled'
-                                      : 'Upcoming Collection',
+                                      ? context.tr('collection_rescheduled')
+                                      : context.tr('upcoming_collection'),
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
@@ -591,7 +629,7 @@ class _HomePage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Date',
+                            context.tr('date'),
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 12,
@@ -614,7 +652,7 @@ class _HomePage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Time',
+                            context.tr('time'),
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 12,
@@ -634,28 +672,36 @@ class _HomePage extends StatelessWidget {
                     ),
                     AppAnimations.pulse(
                       child: Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           shape: BoxShape.circle,
                         ),
                         child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              '$daysUntil',
-                              style: const TextStyle(
+                              daysUntil == 0
+                                  ? (collectionDate.isBefore(now)
+                                      ? 'NOW'
+                                      : 'TODAY')
+                                  : '$daysUntil',
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 24,
+                                fontSize: (daysUntil == 0) ? 14 : 24,
                               ),
                             ),
-                            Text(
-                              daysUntil == 1 ? 'day' : 'days',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 12,
+                            if (daysUntil != 0)
+                              Text(
+                                daysUntil == 1
+                                    ? context.tr('day')
+                                    : context.tr('days'),
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 10,
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
@@ -680,7 +726,7 @@ class _HomePage extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Reason: $rescheduledReason',
+                            '${context.tr('reason')}: $rescheduledReason',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 13,
@@ -724,10 +770,13 @@ class _NotificationsPageState extends State<_NotificationsPage> {
   String _relativeTime(DateTime date) {
     final now = DateTime.now();
     final diff = now.difference(date);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes} minutes ago';
-    if (diff.inDays < 1) return '${diff.inHours} hours ago';
-    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    if (diff.inMinutes < 1) return context.tr('just_now');
+    if (diff.inHours < 1)
+      return context.tr('minutes_ago', args: [diff.inMinutes.toString()]);
+    if (diff.inDays < 1)
+      return context.tr('hours_ago', args: [diff.inHours.toString()]);
+    if (diff.inDays < 7)
+      return context.tr('days_ago', args: [diff.inDays.toString()]);
     return DateFormat('MMM d, y').format(date);
   }
 
@@ -745,7 +794,7 @@ class _NotificationsPageState extends State<_NotificationsPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Notifications',
+              context.tr('notifications'),
               style: AppTheme.titleLarge.copyWith(
                 color: AppTheme.textInverse,
                 fontWeight: FontWeight.w700,
@@ -771,7 +820,7 @@ class _NotificationsPageState extends State<_NotificationsPage> {
             TextButton(
               onPressed: () => reminderService.markAllAsRead(),
               child: Text(
-                'Mark All Read',
+                context.tr('mark_all_read'),
                 style: TextStyle(
                   color: AppTheme.textInverse,
                   fontSize: 14 * responsive.fontSizeMultiplier,
@@ -803,7 +852,7 @@ class _NotificationsPageState extends State<_NotificationsPage> {
                       // Removed Bin Status Section
 
                       Text(
-                        'Notifications',
+                        context.tr('notifications'),
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                           fontSize: 20 * responsive.fontSizeMultiplier,
@@ -846,10 +895,10 @@ class _NotificationsPageState extends State<_NotificationsPage> {
             color: AppTheme.textLight.withOpacity(0.2),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'All clear! No notifications at this time.',
+          Text(
+            context.tr('no_notifications'),
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textLight),
+            style: const TextStyle(color: AppTheme.textLight),
           ),
         ],
       ),

@@ -1,0 +1,32 @@
+ID: ebd907b2-3ed2-4faf-a019-484a6e5c0505 | Date: 2026-03-29T05:30:00+00:00 | Status: scheduled | Name: Collection: Victoria
+ID: 86cfb416-0dda-4b61-b52e-2b4bf9edd08d | Date: 2026-03-29T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 983ea085-30e9-4275-b96c-021ad959e4ed | Date: 2026-03-28T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: eb66bae5-26c7-4360-a2c4-dae06be89ea7 | Date: 2026-03-28T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: e5113fca-b077-431d-afc8-bd509a960619 | Date: 2026-03-27T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: Hazardous Waste
+ID: f43c5dbe-990b-44b0-879d-89d2e7e57aca | Date: 2026-03-27T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 633ffd18-308a-4a9c-a562-5deaac7d1214 | Date: 2026-03-26T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: Hazardous Waste
+ID: 1afe3009-aac8-4f83-86f5-7611175f1a19 | Date: 2026-03-26T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: Organic Waste
+ID: 82dd1331-8c02-4e0d-842e-b1685dfe9077 | Date: 2026-03-26T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 11bec739-0b2c-46c6-bad8-3f07c3788e1f | Date: 2026-03-25T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 9b1c5e98-3390-4384-b850-7523c356af7e | Date: 2026-03-25T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: f7ae3301-bef7-47cc-b102-91ec55096bfc | Date: 2026-03-25T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 456bde1e-3ef8-49a8-8f1b-832724d92170 | Date: 2026-03-25T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: b1f8e3a6-0d4c-470e-8692-2ad19e516bea | Date: 2026-03-25T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 72fd68b5-a7b3-44d8-9808-e3eaa5ac65ea | Date: 2026-03-24T11:06:00+00:00 | Status: on_the_way | Name: Special Collection: Organic Waste
+ID: d6e76c9b-4547-4095-8838-c4396b0e1eea | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 671fc61b-be0a-4bcd-9f2c-432d7f8a9095 | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 5f92dbbd-480c-4fb8-a9bd-865ecc6c89f6 | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: c8a2ea09-f8c2-475e-b2b0-63aca6b23df8 | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: ba795500-7b97-4d37-b2d9-a80d98d969f6 | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: Recycling
+ID: 2e7d1a4f-7754-4e0e-a9e7-511d8b7e23ba | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 50ab07a4-72c4-4bfe-b7a9-4b3b448d0319 | Date: 2026-03-23T00:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 54be880f-bfa6-423f-892d-c6e22f4a7be5 | Date: 2026-03-22T19:00:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: 9ec6af39-8b9a-4595-a103-62654f5e7098 | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: Organic Waste
+ID: dd0ba6a7-2dcc-4ff2-85db-5d5efe49bc59 | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: cc0b2a88-9ec8-41fa-8725-b4f14244711e | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 91c7857a-2641-4e0c-9922-61efee9d71eb | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 5c77ec38-2ba7-42d8-b992-5cb8340e0037 | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 90514635-018d-46cc-9fc1-283e6b549aca | Date: 2026-03-22T00:00:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: 7a41605c-f9f1-4296-bd74-1045840e9ba6 | Date: 2026-03-21T19:09:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste
+ID: bd69e04a-c5f8-440e-a2c9-4cc416fbbf49 | Date: 2026-03-21T18:06:00+00:00 | Status: Scheduled | Name: Special Collection: General Waste
+ID: e4ab96c9-17c1-4378-bcd0-225f0dcec23d | Date: 2026-03-21T18:06:00+00:00 | Status: on_the_way | Name: Special Collection: General Waste

@@ -10,7 +10,6 @@ class FeedbackService extends ChangeNotifier {
   Future<void> submitFeedback({
     required String category,
     required String priority,
-    required String title,
     required String message,
     required bool isAnonymous,
     String? residentId,
@@ -19,6 +18,7 @@ class FeedbackService extends ChangeNotifier {
     String? serviceArea,
     String? barangay,
     String? purok,
+    bool isGuest = true,
   }) async {
     // Schema only has: id, user_id, feedback_text, rating, created_at
     // We must pack all other info into feedback_text
@@ -26,7 +26,6 @@ class FeedbackService extends ChangeNotifier {
     final StringBuffer packedMessage = StringBuffer();
     packedMessage.writeln('Category: $category');
     packedMessage.writeln('Priority: $priority');
-    packedMessage.writeln('Title: $title');
     packedMessage.writeln('Message: $message');
 
     if (!isAnonymous) {
@@ -58,9 +57,20 @@ class FeedbackService extends ChangeNotifier {
     }
 
     final payload = <String, dynamic>{
-      'user_id': (isAnonymous || !isValidUUID(residentId)) ? null : residentId,
-      'feedback_text': packedMessage.toString(),
+      'user_id': (isAnonymous || isGuest || !isValidUUID(residentId))
+          ? null
+          : residentId,
+      'resident_id': residentId,
+      'resident_name': isAnonymous ? 'Anonymous' : residentName,
+      'resident_email': isAnonymous ? null : residentEmail,
+      'category': category,
+      'feedback_text': message,
+      'priority': priority,
       'rating': rating,
+      'service_area': serviceArea,
+      'barangay': barangay,
+      'purok': purok,
+      'status': 'new',
       'created_at': DateTime.now().toIso8601String(),
     };
     // remove nulls

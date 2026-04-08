@@ -3,13 +3,6 @@ import { dbService, realtime, utils } from '../../config/supabase_config.js';
 
 let allFeedback = [];
 let filteredFeedback = [];
-let searchTerm = '';
-
-let currentFilters = {
-    priority: '',
-    status: '',
-    serviceArea: ''
-};
 
 // Initialize page
 
@@ -56,75 +49,10 @@ function setupRealtimeFeedback() {
 }
 
 function setupEventListeners() {
-    const searchInput = document.getElementById('feedbackSearch');
-    if (searchInput) {
-        searchInput.addEventListener('input', debounce((e) => {
-            searchTerm = e.target.value.toLowerCase().trim();
-            applyFilters();
-        }, 300));
-    }
-
-    const priorityFilter = document.getElementById('priorityFilter');
-    if (priorityFilter) {
-        priorityFilter.addEventListener('change', function () {
-            currentFilters.priority = this.value;
-            applyFilters();
-        });
-    }
-
-    const statusFilter = document.getElementById('statusFilter');
-    if (statusFilter) {
-        statusFilter.addEventListener('change', function () {
-            currentFilters.status = this.value;
-            applyFilters();
-        });
-    }
-
-    const areaFilter = document.getElementById('areaFilter');
-    if (areaFilter) {
-        areaFilter.addEventListener('change', function () {
-            currentFilters.serviceArea = this.value;
-            applyFilters();
-        });
-    }
 }
 
 function applyFilters() {
     let list = [...allFeedback];
-
-    if (searchTerm) {
-        list = list.filter((item) => {
-            const title = (item.title || item.category || '').toString().toLowerCase();
-            const message = (item.message || '').toString().toLowerCase();
-            const residentName = (item.residentName || '').toString().toLowerCase();
-            const residentEmail = (item.residentEmail || '').toString().toLowerCase();
-            const barangay = (item.barangay || '').toString().toLowerCase();
-            const purok = (item.purok || '').toString().toLowerCase();
-            return (
-                title.includes(searchTerm) ||
-                message.includes(searchTerm) ||
-                residentName.includes(searchTerm) ||
-                residentEmail.includes(searchTerm) ||
-                barangay.includes(searchTerm) ||
-                purok.includes(searchTerm)
-            );
-        });
-    }
-
-    if (currentFilters.priority) {
-        const p = currentFilters.priority.toLowerCase();
-        list = list.filter((item) => (item.priority || '').toString().toLowerCase() === p);
-    }
-
-    if (currentFilters.status) {
-        const s = currentFilters.status.toLowerCase();
-        list = list.filter((item) => (item.status || 'new').toString().toLowerCase() === s);
-    }
-
-    if (currentFilters.serviceArea) {
-        const a = currentFilters.serviceArea.toLowerCase();
-        list = list.filter((item) => (item.serviceArea || '').toString().toLowerCase() === a);
-    }
 
     filteredFeedback = list;
     renderFeedbackTable();
@@ -140,7 +68,7 @@ function renderFeedbackTable() {
     if (!filteredFeedback.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7">
+                <td colspan="6">
                     <div class="empty-state">
                         <i class="fas fa-comments"></i>
                         <p>No resident feedback found</p>
@@ -162,14 +90,17 @@ function renderFeedbackTable() {
         const serviceArea = formatServiceArea(item.serviceArea || '');
         const locationLabel = barangay || purok
             ? `${purok ? purok + ', ' : ''}${barangay}`
-            : 'Not specified';
+            : tryUnpackLocation(item.message || item.feedback_text || '');
 
         row.innerHTML = `
             <td>
                 <div class="feedback-main">
-                    <div class="feedback-title">${escapeHtml(item.title || item.category || 'Feedback')}</div>
-                    <div class="feedback-message">${escapeHtml(item.message || '')}</div>
-                    <div class="feedback-meta-line">Category: ${escapeHtml(item.category || 'General')}</div>
+                    <div class="feedback-title">
+                        ${status === 'new' ? '<span class="new-dot"></span>' : ''}
+                        ${escapeHtml(item.category || 'Resident Feedback')}
+                    </div>
+                    <div class="feedback-message">${escapeHtml(item.feedback_text || item.message || '')}</div>
+                    <div class="feedback-meta-line">Source: Resident Feedback</div>
                 </div>
             </td>
             <td>
@@ -181,7 +112,6 @@ function renderFeedbackTable() {
             <td>
                 <span class="priority-badge ${priority}">${priority}</span>
             </td>
-            <td>${escapeHtml(serviceArea)}</td>
             <td>
                 <span class="status-badge status-${status}">${formatStatus(status)}</span>
             </td>
@@ -242,6 +172,21 @@ function formatServiceArea(area) {
         .join(' ');
 }
 
+function tryUnpackLocation(text) {
+    if (!text) return 'Not specified';
+
+    const barangayMatch = text.match(/Barangay:\s*([^,"]+)/i);
+    const purokMatch = text.match(/Purok:\s*([^,"]+)/i);
+
+    if (barangayMatch || purokMatch) {
+        const b = (barangayMatch ? barangayMatch[1] : '').trim();
+        const p = (purokMatch ? purokMatch[1] : '').trim();
+        return `${p ? p + ', ' : ''}${b}`.trim() || 'Not specified';
+    }
+
+    return 'Not specified';
+}
+
 function formatTimestamp(raw) {
     if (!raw) return '';
     try {
@@ -249,11 +194,11 @@ function formatTimestamp(raw) {
             return utils.formatDate(raw);
         }
         if (raw.toDate) {
-            return raw.toDate().toLocaleString();
+            return raw.toDate().toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, month: 'short', day: 'numeric', year: 'numeric' });
         }
         const date = new Date(raw);
         if (!Number.isNaN(date.getTime())) {
-            return date.toLocaleString();
+            return date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, month: 'short', day: 'numeric', year: 'numeric' });
         }
         return String(raw);
     } catch (e) {
@@ -304,19 +249,6 @@ async function deleteFeedback(id) {
 }
 
 function resetFeedbackFilters() {
-    const searchInput = document.getElementById('feedbackSearch');
-    const priorityFilter = document.getElementById('priorityFilter');
-    const statusFilter = document.getElementById('statusFilter');
-    const areaFilter = document.getElementById('areaFilter');
-
-    searchTerm = '';
-    currentFilters = { priority: '', status: '', serviceArea: '' };
-
-    if (searchInput) searchInput.value = '';
-    if (priorityFilter) priorityFilter.value = '';
-    if (statusFilter) statusFilter.value = '';
-    if (areaFilter) areaFilter.value = '';
-
     applyFilters();
 }
 

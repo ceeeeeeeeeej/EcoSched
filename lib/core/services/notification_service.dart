@@ -8,11 +8,14 @@ import '../config/supabase_config.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     as fln;
 
-import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 import '../routes/app_router.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
+import '../localization/translations.dart';
+import '../utils/id_utils.dart';
 
 class NotificationService {
   static SupabaseClient get _supabase => SupabaseConfig.client;
@@ -20,6 +23,8 @@ class NotificationService {
   static final fln.FlutterLocalNotificationsPlugin _localNotifications =
       fln.FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static final Set<String> _processedNotificationIds = {};
+  static DateTime? _lastProcessedTimestamp;
 
   static bool get _isSupportedPlatform {
     if (kIsWeb) return false;
@@ -34,14 +39,17 @@ class NotificationService {
 
   static Future<String> _getDeviceId() async {
     final deviceInfo = DeviceInfoPlugin();
+    String baseId = 'unknown';
+
     if (Platform.isAndroid) {
       final androidInfo = await deviceInfo.androidInfo;
-      return androidInfo.id;
+      baseId = androidInfo.id;
     } else if (Platform.isIOS) {
       final iosInfo = await deviceInfo.iosInfo;
-      return iosInfo.identifierForVendor ?? 'unknown_ios';
+      baseId = iosInfo.identifierForVendor ?? 'unknown_ios';
     }
-    return 'unknown_device';
+
+    return IdUtils.generateUuidFromSeed(baseId);
   }
 
   static Future<void> _registerDeviceToken() async {
@@ -87,6 +95,16 @@ class NotificationService {
     }
   }
 
+  static Future<void> cancelAllScheduledNotifications() async {
+    if (!_isSupportedPlatform) return;
+    await _localNotifications.cancelAll();
+  }
+
+  static Future<void> cancelNotification(int id) async {
+    if (!_isSupportedPlatform) return;
+    await _localNotifications.cancel(id);
+  }
+
   static Future<void> cancelValidation(int id) async {
     if (!_isSupportedPlatform) return;
     await _localNotifications.cancel(id);
@@ -98,7 +116,9 @@ class NotificationService {
 
     if (_isSupportedPlatform) {
       try {
-        tz.initializeTimeZones(); // Initialize timezones
+        tz_data.initializeTimeZones(); // Initialize timezones
+        tz.setLocalLocation(
+            tz.getLocation('Asia/Manila')); // Standardize to Ph time
       } catch (e) {
         if (kDebugMode) print('Error initializing timezones: $e');
       }
@@ -124,13 +144,46 @@ class NotificationService {
               _onNotificationTapBackground,
         );
 
-        // Request permissions explicitly for Android 13+ (API 33+)
+        // Request permissions and create channel explicitly for Android 13+ (API 33+)
         if (defaultTargetPlatform == TargetPlatform.android) {
           final androidImplementation =
               _localNotifications.resolvePlatformSpecificImplementation<
                   fln.AndroidFlutterLocalNotificationsPlugin>();
+
           await androidImplementation?.requestNotificationsPermission();
-        }
+
+          // Explicitly create the high-importance channel
+          const androidChannel = fln.AndroidNotificationChannel(
+            'ecosched_alerts',
+            'EcoSched Alerts',
+            description: 'Important notifications and schedule updates',
+            importance: fln.Importance.max,
+            playSound: true,
+            enableVibration: true,
+          );
+
+          await androidImplementation
+              ?.createNotificationChannel(androidChannel);
+
+          // CRITICAL: Also register the reminders channel used by scheduleNotification
+          const remindersChannel = fln.AndroidNotificationChannel(
+            'ecosched_reminders',
+            'EcoSched Reminders',
+            description: 'Scheduled reminders for waste collection',
+            importance: fln.Importance.max,
+            playSound: true,
+            enableVibration: true,
+          );
+          await androidImplementation
+              ?.createNotificationChannel(remindersChannel);
+
+          // Request exact alarm permission on Android 12+ (API 31+)
+          // This prevents silent alarm failures when the permission is denied.
+          try {
+            await androidImplementation?.requestExactAlarmsPermission();
+          } catch (_) {
+            // requestExactAlarmsPermission may not exist on older plugin versions — safe to ignore
+          }
 
         if (kDebugMode) print('🔔 Local notifications initialized');
       } catch (e) {
@@ -156,7 +209,7 @@ class NotificationService {
   // Handle notification tap
   static void _onNotificationTap(fln.NotificationResponse response) {
     if (kDebugMode) print('🔔 Notification tapped: ${response.payload}');
-    _navigateToDashboard();
+    _navigateToDashboard(response.payload ?? '');
   }
 
   // Handle background notification tap (must be a static method)
@@ -168,12 +221,24 @@ class NotificationService {
     }
   }
 
-  static void _navigateToDashboard() {
+  static void _navigateToDashboard(String title) {
     // Navigate to dashboard using the global key
     final context = AppRouter.navigatorKey.currentContext;
     if (context != null) {
+      final titleLower = title.toLowerCase();
+
+      int targetNavIndex = 0;
+      if (titleLower.contains('special collection')) {
+        targetNavIndex = 3;
+      } else if (titleLower.contains('feedback')) {
+        targetNavIndex = 1;
+      }
+
       Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.residentDashboard, (route) => false);
+        AppRoutes.residentDashboard,
+        (route) => false,
+        arguments: {'initialNavIndex': targetNavIndex},
+      );
     }
   }
 
@@ -205,6 +270,32 @@ class NotificationService {
               value: _activeServiceArea ?? 'Mahayag',
             ),
             callback: (payload) {
+              final data = payload.newRecord;
+              final id = data['id']?.toString() ??
+                  'unknown_${DateTime.now().millisecondsSinceEpoch}';
+
+              // 🚫 DEDUPLICATION: If we already processed this ID in this session, skip it.
+              if (_processedNotificationIds.contains(id)) return;
+
+              // 🚫 FLOOD CONTROL: Ignore "old" notifications that might be re-sent by Supabase
+              // upon reconnection if they are more than 2 minutes old.
+              final createdAtStr = data['created_at']?.toString();
+              if (createdAtStr != null) {
+                final createdAt = DateTime.tryParse(createdAtStr);
+                if (createdAt != null) {
+                  final now = DateTime.now();
+                  final diff = now.difference(createdAt).inMinutes;
+
+                  // If we just connected and the message is over 2 min old, it's likely a backlog.
+                  if (diff > 2 && _processedNotificationIds.isEmpty) {
+                    _processedNotificationIds
+                        .add(id); // Mark it as seen so we don't check again
+                    return;
+                  }
+                }
+              }
+
+              _processedNotificationIds.add(id);
               _processNotificationPayload(payload);
             },
           )
@@ -218,6 +309,14 @@ class NotificationService {
               value: _activeUserId ?? '00000000-0000-0000-0000-000000000000',
             ),
             callback: (payload) {
+              final data = payload.newRecord;
+              final id = data['id']?.toString() ??
+                  'unknown_${DateTime.now().millisecondsSinceEpoch}';
+
+              // Same deduplication for personal alerts
+              if (_processedNotificationIds.contains(id)) return;
+              _processedNotificationIds.add(id);
+
               _processNotificationPayload(payload);
             },
           )
@@ -248,8 +347,23 @@ class NotificationService {
       return;
     }
 
-    final title = data['title']?.toString() ?? 'EcoSched Update';
-    final body = data['message']?.toString() ?? 'You have a new notification';
+    final rawTitle = data['title']?.toString() ?? 'EcoSched Update';
+    final rawBody =
+        data['message']?.toString() ?? 'You have a new notification';
+
+    final title = Translations.getBilingualText(rawTitle);
+    final body = Translations.getBilingualText(rawBody);
+    final targetUserId = data['user_id']?.toString();
+
+    // 🛡️ SECURITY FILTER: If a user_id is present, but it's NOT ours, ignore it.
+    // This prevents "leaks" where one user sees another's (or a collector's) notification.
+    if (targetUserId != null && targetUserId != _activeUserId) {
+      if (kDebugMode) {
+        print(
+            '🛡️ [Notification] Ignoring notification targeted to $targetUserId');
+      }
+      return;
+    }
 
     if (kDebugMode) {
       print('🔔 [Notification] New alert received: $title');
@@ -262,14 +376,19 @@ class NotificationService {
     }
 
     // Show In-App SnackBar
-    _showInAppAlert(title, body);
+    final bilingualTitle = Translations.getBilingualText(title);
+    final bilingualBody = Translations.getBilingualText(body);
+    _showInAppAlert(bilingualTitle, bilingualBody);
 
     // Also show local notification for better visibility
+    /* 
     showNotification(
       id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title: title,
       body: body,
+      payload: title,
     );
+    */
   }
 
   static void _showInAppAlert(String title, String message) {
@@ -296,9 +415,7 @@ class NotificationService {
               label: 'VIEW',
               textColor: Colors.white,
               onPressed: () {
-                // Navigate to dashboard
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                    AppRoutes.residentDashboard, (route) => false);
+                _navigateToDashboard(title);
               },
             ),
           ),
@@ -316,22 +433,92 @@ class NotificationService {
     required DateTime scheduledDate,
     String? payload,
   }) async {
+    final bilingualTitle = Translations.getBilingualText(title);
+    final bilingualBody = Translations.getBilingualText(body);
+
     if (!_isSupportedPlatform) return;
 
     try {
       final now = DateTime.now();
-      if (scheduledDate.isBefore(now)) return;
+      if (scheduledDate.isBefore(now)) {
+        if (kDebugMode)
+          print(
+              '⚠️ [Notification] Scheduled skip: $scheduledDate is in the past.');
+        return;
+      }
+
+      final scheduledTZDate = tz.TZDateTime.from(scheduledDate, tz.local);
 
       if (kDebugMode) {
-        print('🔔 NOTIFICATION SCHEDULED:');
+        print('🔔 [Notification] Scheduling alert:');
         print('   - ID: $id');
-        print('   - Title: $title');
-        print('   - Time: $scheduledDate');
-        print('   - Payload: $payload');
+        print('   - Title: $bilingualTitle');
+        print('   - Target: $scheduledTZDate');
+      }
+
+      // Try exact alarm first, fall back to inexact if permission is denied
+      try {
+        await _localNotifications.zonedSchedule(
+          id,
+          bilingualTitle,
+          bilingualBody,
+          scheduledTZDate,
+          fln.NotificationDetails(
+            android: fln.AndroidNotificationDetails(
+              'ecosched_reminders',
+              'EcoSched Reminders',
+              channelDescription: 'Scheduled reminders for waste collection',
+              importance: fln.Importance.max,
+              priority: fln.Priority.high,
+              icon: '@mipmap/ic_launcher',
+              playSound: true,
+            ),
+            iOS: const fln.DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+            ),
+          ),
+          androidScheduleMode: fln.AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              fln.UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload ?? title,
+        );
+        if (kDebugMode) print('✅ [Notification] Exact alarm registered for: $scheduledTZDate');
+      } catch (exactErr) {
+        // Exact alarm failed (permission denied) — fall back to inexact so it still fires
+        if (kDebugMode) print('⚠️ Exact alarm failed ($exactErr), falling back to inexact...');
+        await _localNotifications.zonedSchedule(
+          id,
+          bilingualTitle,
+          bilingualBody,
+          scheduledTZDate,
+          fln.NotificationDetails(
+            android: fln.AndroidNotificationDetails(
+              'ecosched_reminders',
+              'EcoSched Reminders',
+              channelDescription: 'Scheduled reminders for waste collection',
+              importance: fln.Importance.max,
+              priority: fln.Priority.high,
+              icon: '@mipmap/ic_launcher',
+              playSound: true,
+            ),
+            iOS: const fln.DarwinNotificationDetails(
+              presentAlert: true,
+              presentBadge: true,
+              presentSound: true,
+            ),
+          ),
+          androidScheduleMode: fln.AndroidScheduleMode.inexact,
+          uiLocalNotificationDateInterpretation:
+              fln.UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload ?? title,
+        );
+        if (kDebugMode) print('✅ [Notification] Inexact alarm registered as fallback for: $scheduledTZDate');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error scheduling notification: $e');
+        print('❌ Error scheduling notification: $e');
       }
     }
   }
@@ -356,6 +543,9 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
+    final bilingualTitle = Translations.getBilingualText(title);
+    final bilingualBody = Translations.getBilingualText(body);
+
     if (!_isSupportedPlatform) return;
 
     if (kDebugMode) {
@@ -368,8 +558,8 @@ class NotificationService {
     try {
       await _localNotifications.show(
         id,
-        title,
-        body,
+        bilingualTitle,
+        bilingualBody,
         const fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
             'ecosched_alerts',
@@ -421,5 +611,26 @@ class NotificationService {
 
     // Register token AFTER barangay is known
     _registerDeviceToken();
+  }
+
+  static Future<void> showLocalNotificationFromRemote(
+      RemoteMessage message) async {
+    if (!_isSupportedPlatform) return;
+
+    final data = message.data;
+    final String title =
+        data['title'] ?? message.notification?.title ?? 'EcoSched Update';
+    final String body =
+        data['body'] ?? message.notification?.body ?? 'You have a new alert';
+
+    // Use the message ID or a consistent hash for deduplication
+    final int id = message.messageId.hashCode;
+
+    await showNotification(
+      id: id,
+      title: title,
+      body: body,
+      payload: title,
+    );
   }
 }

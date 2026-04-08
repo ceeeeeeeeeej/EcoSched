@@ -53,10 +53,38 @@ class ProfileScreen extends StatelessWidget {
                   children: [
                     Text('Account', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 12),
-                    _kv(context, 'Role', auth.isCollector() ? 'Collector' : 'Resident'),
-                    const SizedBox(height: 8),
                     _kv(context, 'Email verified', (auth.user?['emailVerified'] == true) ? 'Yes' : 'No'),
                   ],
+                ),
+              ),
+              const SizedBox(height: 48),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await auth.signOut();
+                  if (context.mounted) {
+                    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                  }
+                },
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('Sign Out'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade50,
+                  foregroundColor: Colors.red.shade700,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusL),
+                    side: BorderSide(color: Colors.red.shade100),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Center(
+                child: Text(
+                  'EcoSched v2.0.0',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textMuted,
+                  ),
                 ),
               ),
             ],

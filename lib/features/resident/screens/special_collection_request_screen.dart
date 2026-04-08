@@ -29,6 +29,8 @@ class _SpecialCollectionRequestScreenState
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _contactNumberController =
       TextEditingController();
+  final TextEditingController _streetController = TextEditingController();
+  final TextEditingController _ageController = TextEditingController();
 
   final List<String> _wasteTypes = [
     'General Waste',
@@ -61,8 +63,8 @@ class _SpecialCollectionRequestScreenState
     final auth = Provider.of<AuthService>(context, listen: false);
     final user = auth.user;
     if (user != null) {
-      // Prefill Name
-      _residentNameController.text = user['displayName'] ?? '';
+      // Remove auto-prefill for name as per user request to show placeholder
+      _residentNameController.text = '';
 
       // Prefill Location
       final String? currentLocation = user['currentLocation'] as String?;
@@ -88,9 +90,8 @@ class _SpecialCollectionRequestScreenState
       final location = addressParts.join(', ');
 
       if (location.isNotEmpty) {
-        setState(() {
-          _pickupLocationController.text = location;
-        });
+        // Remove auto-prefill for location to match resident name behavior
+        _pickupLocationController.text = '';
       }
     }
   }
@@ -105,6 +106,8 @@ class _SpecialCollectionRequestScreenState
     _pickupLocationController.dispose();
     _messageController.dispose();
     _contactNumberController.dispose();
+    _streetController.dispose();
+    _ageController.dispose();
     super.dispose();
   }
 
@@ -125,9 +128,24 @@ class _SpecialCollectionRequestScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildSection(
-                    'Resident Name',
+                    'Resident Information',
                     Icons.person_rounded,
-                    _buildResidentNameField(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Name'),
+                        const SizedBox(height: 8),
+                        _buildResidentNameField(),
+                        const SizedBox(height: 16),
+                        _buildFieldLabel('Age'),
+                        const SizedBox(height: 8),
+                        _buildAgeField(),
+                        const SizedBox(height: 16),
+                        _buildFieldLabel('Street name'),
+                        const SizedBox(height: 8),
+                        _buildStreetField(),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 20),
                   _buildSection(
@@ -168,7 +186,7 @@ class _SpecialCollectionRequestScreenState
     return TextFormField(
       controller: _residentNameController,
       decoration: InputDecoration(
-        hintText: 'Enter your full name',
+        hintText: '',
         filled: true,
         fillColor: AppTheme.primary.withOpacity(0.05),
       ),
@@ -178,6 +196,17 @@ class _SpecialCollectionRequestScreenState
         }
         return null;
       },
+    );
+  }
+
+  Widget _buildFieldLabel(String label) {
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: AppTheme.textDark.withOpacity(0.7),
+      ),
     );
   }
 
@@ -258,7 +287,7 @@ class _SpecialCollectionRequestScreenState
           controller: _pickupLocationController,
           readOnly: false,
           decoration: InputDecoration(
-            hintText: 'Enter pickup location',
+            hintText: '',
             filled: true,
             fillColor: AppTheme.primary.withOpacity(0.05),
           ),
@@ -312,6 +341,41 @@ class _SpecialCollectionRequestScreenState
     );
   }
 
+  Widget _buildAgeField() {
+    return TextFormField(
+      controller: _ageController,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        hintText: 'e.g., 25',
+        filled: true,
+        fillColor: AppTheme.primary.withOpacity(0.05),
+      ),
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Age is required';
+        }
+        return null;
+      },
+    );
+  }
+
+  Widget _buildStreetField() {
+    return TextFormField(
+      controller: _streetController,
+      decoration: InputDecoration(
+        hintText: 'e.g., Sunflower St.',
+        filled: true,
+        fillColor: AppTheme.primary.withOpacity(0.05),
+      ),
+      validator: (value) {
+        if (value == null || value.trim().isEmpty) {
+          return 'Street name is required';
+        }
+        return null;
+      },
+    );
+  }
+
   Widget _buildMessageField() {
     return TextFormField(
       controller: _messageController,
@@ -323,6 +387,7 @@ class _SpecialCollectionRequestScreenState
       ),
     );
   }
+
 
   Widget _buildSubmitButton() {
     return SizedBox(
@@ -380,10 +445,13 @@ class _SpecialCollectionRequestScreenState
       return;
     }
 
+
     final result = await specialCollectionService.requestSpecialCollection(
       residentName: _residentNameController.text.trim(),
       residentBarangay: user['barangay'] ?? '',
       residentPurok: user['purok'] ?? '',
+      residentStreet: _streetController.text.trim(),
+      residentAge: _ageController.text.trim(),
       wasteType: _selectedWasteType,
       estimatedQuantity: _selectedQuantity,
       pickupLocation: _pickupLocationController.text.trim(),

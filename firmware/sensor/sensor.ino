@@ -1,35 +1,36 @@
-#include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 
-
 // -------- PIN DEFINITIONS --------
-#define TRIG 5  // D1
-#define ECHO 14 // D5
+#define TRIG 5
+#define ECHO 14
 
-#define WIFI_LED 13 // D7
-
-#define GREEN_LED 4   // D2
-#define YELLOW_LED 16 // D0
-#define RED_LED 2     // D4
+#define WIFI_LED 13
+#define GREEN_LED 4
+#define RED_LED 2
 
 // -------- WIFI --------
-const char *ssid = "PLDTHOMEFIBRa25gd";
-const char *password = "PLDTWIFIAs3rY";
+const char* ssid = "Pentin-2.4G";
+const char* password = "08290314pentin";
 
-// -------- SUPABASE DETAILS --------
-const char *supabaseUrl =
-    "https://bfqktqtsjchbmopafgzf.supabase.co/rest/v1/bins?bin_id=eq.BIN-1189";
-const char *supabaseKey = "sb_publishable_ucEKoeLHhbxBVtzDABvVIg_eKIhIQ31";
+// -------- SUPABASE --------
+const char* supabaseUrl = "https://bfqktqtsjchbmopafgzf.supabase.co";
+const char* supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcWt0cXRzamNoYm1vcGFmZ3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMDgwMTIsImV4cCI6MjA4NTc4NDAxMn0.Xu7Ncwr5bWYF8x2t5h7XHw_nPrjlTSkQEdnQB4OtcNo";
 
 // -------- VARIABLES --------
-long duration;
-float distance;
-float lastValidDistance = 44;
-float binHeight = 44.0;
-float fillLevel;
+float lastValidDistance = 65.0;
+float binHeight = 105.0;
 
-// -------- DISTANCE FUNCTION --------
+// -------- TIMERS --------
+unsigned long lastSendTime = 0;
+unsigned long lastReadTime = 0;
+unsigned long lastFullDetectTime = 0;
+
+// -------- STATE --------
+bool isRed = false;
+
+// -------- READ DISTANCE --------
 float readDistance() {
 
   digitalWrite(TRIG, LOW);
@@ -39,57 +40,61 @@ float readDistance() {
   delayMicroseconds(10);
   digitalWrite(TRIG, LOW);
 
-  duration = pulseIn(ECHO, HIGH, 40000);
+  long dur = pulseIn(ECHO, HIGH, 20000);
 
-  if (duration == 0)
-    return lastValidDistance;
+  if (dur == 0) return binHeight;
 
-  float d = (duration * 0.0343) / 2;
+  float d = (dur * 0.0343) / 2;
 
-  if (d > 2 && d < 60) {
+  if (d > 2 && d < 120) {
     lastValidDistance = d;
     return d;
   }
 
-  return lastValidDistance;
+  return binHeight;
 }
 
 // -------- LED CONTROL --------
-void setBinLED(bool g, bool y, bool r) {
-  digitalWrite(GREEN_LED, g);
-  digitalWrite(YELLOW_LED, y);
-  digitalWrite(RED_LED, r);
+void setBinLED(bool redOn) {
+  digitalWrite(RED_LED, redOn);
+  digitalWrite(GREEN_LED, !redOn);
 }
 
-// -------- SEND TO ADMIN DASHBOARD --------
-void sendToAdminDashboard(int currentFillLevel) {
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFiClientSecure client;
-    client.setInsecure(); // No SSL certificate validation
+// -------- SEND TO SUPABASE --------
+void sendToSupabase(float distance, bool isRed) {
 
-    HTTPClient http;
-    http.begin(client, supabaseUrl);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("apikey", supabaseKey);
-    http.addHeader("Authorization", String("Bearer ") + String(supabaseKey));
+  if (WiFi.status() != WL_CONNECTED) return;
 
-    // Create JSON payload
-    String requestBody = "{\"fill_level\": " + String(currentFillLevel) + "}";
+  WiFiClientSecure client;
+  client.setInsecure();
 
-    int httpResponseCode = http.PATCH(requestBody);
+  HTTPClient https;
 
-    if (httpResponseCode > 0) {
-      Serial.print("Data sent to Admin Dashboard. HTTP Response: ");
-      Serial.println(httpResponseCode);
-    } else {
-      Serial.print("Error sending data. HTTP Error: ");
-      Serial.println(httpResponseCode);
-    }
+  String url = String(supabaseUrl) + "/rest/v1/bins?bin_id=eq.ECO-VIC-24";
+  https.begin(client, url);
 
-    http.end();
+  https.addHeader("Content-Type", "application/json");
+  https.addHeader("apikey", supabaseKey);
+  https.addHeader("Authorization", "Bearer " + String(supabaseKey));
+  https.addHeader("Prefer", "return=minimal");
+
+  // -------- BIN STATUS --------
+  String binStatus;
+  if (isRed) {
+    binStatus = "full";
   } else {
-    Serial.println("WiFi not connected. Cannot send data.");
+    binStatus = "normal";
   }
+
+  // -------- JSON --------
+  String jsonBody = "{";
+  jsonBody += "\"distance\":" + String(distance, 2) + ",";
+  jsonBody += "\"status\":\"online\",";
+  jsonBody += "\"bin_status\":\"" + binStatus + "\"";
+  jsonBody += "}";
+
+  https.PATCH(jsonBody);
+  https.end();
 }
 
 // -------- SETUP --------
@@ -102,55 +107,51 @@ void setup() {
 
   pinMode(WIFI_LED, OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
-  pinMode(YELLOW_LED, OUTPUT);
   pinMode(RED_LED, OUTPUT);
 
   digitalWrite(WIFI_LED, LOW);
-  setBinLED(LOW, LOW, LOW);
+  setBinLED(false);
 
   WiFi.begin(ssid, password);
-  Serial.print("Connecting");
 
   while (WiFi.status() != WL_CONNECTED) {
     digitalWrite(WIFI_LED, HIGH);
-    delay(250);
+    delay(200);
     digitalWrite(WIFI_LED, LOW);
-    delay(250);
-    Serial.print(".");
+    delay(200);
   }
 
-  Serial.println("\nWiFi Connected!");
   digitalWrite(WIFI_LED, HIGH);
 }
 
 // -------- LOOP --------
 void loop() {
 
-  distance = readDistance();
+  if (millis() - lastReadTime > 80) {
+    lastReadTime = millis();
 
-  fillLevel = ((binHeight - distance) / binHeight) * 100;
-  fillLevel = constrain(fillLevel, 0, 100);
+    float distance = readDistance();
 
-  Serial.println("----------------------");
+    Serial.print("Distance: ");
+    Serial.println(distance);
 
-  if (fillLevel < 20) {
+    // -------- FULL HOLD LOGIC --------
+    if (distance < 60) {
+      isRed = true;
+      lastFullDetectTime = millis();
+    }
+    else {
+      if (millis() - lastFullDetectTime > 10000) {
+        isRed = false;
+      }
+    }
 
-    Serial.println("Status: NOT FULL");
-    setBinLED(HIGH, LOW, LOW);
+    setBinLED(isRed);
 
-  } else if (fillLevel < 60) {
-
-    Serial.println("Status: ALMOST FULL");
-    setBinLED(LOW, HIGH, LOW);
-
-  } else {
-
-    Serial.println("Status: FULL");
-    setBinLED(LOW, LOW, HIGH);
+    // -------- HEARTBEAT SEND --------
+    if (millis() - lastSendTime > 5000) {
+      lastSendTime = millis();
+      sendToSupabase(distance, isRed);
+    }
   }
-
-  // Send the data
-  sendToAdminDashboard((int)fillLevel);
-
-  delay(2000);
 }

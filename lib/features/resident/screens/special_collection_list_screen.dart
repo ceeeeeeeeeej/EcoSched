@@ -22,7 +22,6 @@ class _SpecialCollectionListScreenState
     extends State<SpecialCollectionListScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _requests = [];
-  String? _errorMessage;
 
   @override
   void initState() {
@@ -33,7 +32,6 @@ class _SpecialCollectionListScreenState
   Future<void> _fetchRequests() async {
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
     });
 
     try {
@@ -49,7 +47,6 @@ class _SpecialCollectionListScreenState
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load requests: $e';
         _isLoading = false;
       });
 
@@ -121,29 +118,7 @@ class _SpecialCollectionListScreenState
     );
   }
 
-  Widget _buildCollectionsList(
-      BuildContext context, SpecialCollectionService service) {
-    final collections = service.specialCollections;
 
-    if (collections.isEmpty) {
-      return _buildEmptyState();
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppTheme.spacing4,
-        vertical: AppTheme.spacing4,
-      ),
-      itemCount: collections.length,
-      itemBuilder: (context, index) {
-        return _buildRequestCard(
-          context,
-          collections[index],
-          index,
-        );
-      },
-    );
-  }
 
   Widget _buildEmptyState() {
     return Center(
@@ -200,12 +175,40 @@ class _SpecialCollectionListScreenState
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
-                child: Text(
-                  wasteType,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.textDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      wasteType,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textDark,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Resident: ${collection['residentName'] ?? 'N/A'}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.primaryGreen,
                       ),
+                    ),
+                    Text(
+                      'Address: Prk. ${collection['residentPurok'] ?? 'N/A'}, ${collection['residentStreet'] ?? 'N/A'}, ${collection['residentBarangay'] ?? 'N/A'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textLight,
+                      ),
+                    ),
+                    Text(
+                      'Age: ${collection['residentAge'] ?? 'N/A'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textLight,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               _buildStatusBadge(status),
@@ -365,14 +368,9 @@ class _SpecialCollectionListScreenState
       children: [
         // approved requests no longer display any extra buttons
         // all actions are handled via cancel only
-        if (status == 'pending' ||
-            status == 'approved' ||
-            status == 'scheduled')
+        if (status == 'pending' || status == 'approved')
           Padding(
-            padding: EdgeInsets.only(
-                top: (status == 'pending' || status == 'approved')
-                    ? AppTheme.spacing2
-                    : 0),
+            padding: const EdgeInsets.only(top: AppTheme.spacing2),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(

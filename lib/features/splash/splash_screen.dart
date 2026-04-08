@@ -57,21 +57,26 @@ class _SplashScreenState extends State<SplashScreen>
     // Wait for auth check to be ready
     final auth = Provider.of<AuthService>(context, listen: false);
 
+    bool _isNavigating = false;
     void tryNavigate() {
-      if (!mounted) return;
+      if (!mounted || _isNavigating) return;
 
       if (auth.isAuthCheckComplete) {
-        // Only auto-navigate if the user is a Collector
-        // Residents should always land on the Barangay Selection screen as requested
-        if (auth.isAuthenticated && auth.isCollector()) {
-          if (kDebugMode) {
-            print('🚀 FLASH: Collector session found, auto-navigating...');
+        if (auth.isAuthenticated) {
+          if (auth.hasBarangaySelected) {
+            if (kDebugMode) {
+              print('🚀 FLASH: Resident profile found, auto-jumping to Dashboard.');
+            }
+            _isNavigating = true;
+            auth.goHome(context);
+          } else {
+            if (kDebugMode) {
+              print('🚀 FLASH: Resident authenticated but no location selected. Staying on Splash.');
+            }
           }
-          auth.goHome(context);
         } else {
           if (kDebugMode) {
-            print(
-                '🚀 FLASH: No collector session or resident user, staying on Splash.');
+            print('🚀 FLASH: No session, staying on Splash.');
           }
         }
       }
@@ -136,10 +141,8 @@ class _SplashScreenState extends State<SplashScreen>
         timeLimit: const Duration(seconds: 20), // Increased from 10s
       );
 
-      // 4. Verify against bounds (Skip for Visitors)
-      final bool isVisitor = barangay.toLowerCase() == 'visitors';
-      final isInside = isVisitor ||
-          LocationConstants.isWithinBarangay(
+      // 4. Verify against bounds
+      final isInside = LocationConstants.isWithinBarangay(
               barangay, position.latitude, position.longitude);
 
       if (!isInside) {
@@ -151,9 +154,6 @@ class _SplashScreenState extends State<SplashScreen>
           } else if (barangay.toLowerCase().contains('victoria')) {
             message =
                 'You are not currently located in Barangay Victoria. This selection is only available for residents within Barangay Victoria.';
-          } else {
-            message =
-                'You are not currently located in Barangay Mahayag. This selection is only available for residents within Barangay Mahayag.';
           }
           _showAccessDeniedDialog(context, message);
         }
@@ -161,34 +161,7 @@ class _SplashScreenState extends State<SplashScreen>
         return;
       }
 
-      // 5. If everything is fine, proceed
-      if (mounted) {
-        final auth = Provider.of<AuthService>(context, listen: false);
-
-        // Use a default purok
-        const String defaultPurok = 'Purok 1';
-
-        // Ensure we have a session (Anonymous or otherwise)
-        if (!auth.isAuthenticated) {
-          // await auth.signInAnonymously(); // DISABLED: Anonymous sign-ins are disabled in Supabase
-        }
-
-        // Set local location first
-        auth.setResidentLocation(
-          barangay: barangay,
-          purok: defaultPurok,
-        );
-
-        // Then register in database for Admin tracking
-        final residentUser = auth.user;
-        if (residentUser != null && residentUser['uid'] != null) {
-          await auth.registerResidentInDatabase(
-            barangay: barangay,
-            userId: residentUser['uid'],
-            purok: defaultPurok,
-          );
-        }
-
+        // Pass to Registration Screen after Geofencing success
         if (mounted) {
           setState(() {
             _selectedBarangayName = barangay;
@@ -197,13 +170,24 @@ class _SplashScreenState extends State<SplashScreen>
           });
         }
 
-        // Wait for animation
-        await Future.delayed(const Duration(seconds: 3));
+        // Wait for welcome animation or short delay
+        await Future.delayed(const Duration(milliseconds: 1500));
 
         if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/resident');
+          final auth = Provider.of<AuthService>(context, listen: false);
+          final hasProfile = auth.user?['barangay'] != null && 
+                            auth.user?['purok'] != null;
+          
+          if (hasProfile && auth.user?['barangay'] == barangay) {
+            // Already registered for this barangay, go home
+            auth.goHome(context);
+          } else {
+            Navigator.of(context).pushReplacementNamed(
+              '/resident/registration',
+              arguments: barangay,
+            );
+          }
         }
-      }
     } catch (e) {
       if (kDebugMode) print('Location verification error: $e');
       if (mounted) {
@@ -341,10 +325,11 @@ class _SplashScreenState extends State<SplashScreen>
                                         ),
                                       ],
                                     ),
-                                    child: const Icon(
-                                      Icons.eco_rounded,
-                                      size: 56,
-                                      color: Colors.white,
+                                    child: Image.asset(
+                                      'assets/images/ecosched_logo.png',
+                                      width: 70,
+                                      height: 70,
+                                      fit: BoxFit.contain,
                                     ),
                                   ),
                                 ),
@@ -442,25 +427,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   : () => _handleBarangaySelection(
                                       context, 'Victoria'),
                             ),
-                            const SizedBox(height: AppTheme.spacing3),
-                            _BarangaySelectionCard(
-                              title: 'Barangay Mahayag',
-                              isLoading: _isVerifying,
-                              onTap: _isVerifying
-                                  ? () {}
-                                  : () => _handleBarangaySelection(
-                                      context, 'Mahayag'),
-                            ),
-                            const SizedBox(height: AppTheme.spacing3),
-                            _BarangaySelectionCard(
-                              title: 'Visitors',
-                              isLoading: _isVerifying,
-                              onTap: _isVerifying
-                                  ? () {}
-                                  : () => _handleBarangaySelection(
-                                      context, 'Visitors'),
-                            ),
-                            const SizedBox(height: AppTheme.spacing4),
+                            const SizedBox(height: AppTheme.spacing6),
                           ],
                         ),
                       ),

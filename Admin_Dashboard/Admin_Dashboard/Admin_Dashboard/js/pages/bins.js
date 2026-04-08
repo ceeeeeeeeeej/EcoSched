@@ -108,7 +108,7 @@ function updateStats() {
 
     if (activeBinsEl) activeBinsEl.textContent = allBins.length;
 
-    const criticalBins = allBins.filter(b => b.fill_level >= 90).length;
+    const criticalBins = allBins.filter(b => b.bin_status === 'full').length;
     if (fullBinAlertsEl) fullBinAlertsEl.textContent = criticalBins;
 }
 
@@ -119,9 +119,10 @@ function renderBinList() {
     sensorListEl.innerHTML = '';
 
     allBins.sort((a, b) => b.fill_level - a.fill_level).forEach(bin => {
-        const severity = bin.fill_level >= 90 ? 'status-critical' : bin.fill_level >= 75 ? 'status-warning' : 'status-safe';
-        const fillPill = bin.fill_level >= 90 ? 'Critical' : bin.fill_level >= 75 ? 'Warning' : 'Optimal';
-        const barColor = bin.fill_level >= 90 ? '#dc2626' : bin.fill_level >= 75 ? '#f97316' : '#10b981';
+        const isFull = (bin.bin_status || '').toLowerCase() === 'full';
+        const severity = isFull ? 'status-critical' : 'status-safe';
+        const fillPill = isFull ? 'Full' : 'Normal';
+        const barColor = isFull ? '#dc2626' : '#10b981';
 
         const item = document.createElement('div');
         item.className = 'sensor-item';
@@ -174,7 +175,8 @@ function updateMapMarkers() {
 
     allBins.forEach(bin => {
         if (bin.location_lat && bin.location_lng) {
-            const markerColor = bin.fill_level >= 90 ? '#ef4444' : '#10b981';
+            const isFull = (bin.bin_status || '').toLowerCase() === 'full';
+            const markerColor = isFull ? '#ef4444' : '#10b981';
             const marker = L.circleMarker([bin.location_lat, bin.location_lng], {
                 radius: 10,
                 color: markerColor,

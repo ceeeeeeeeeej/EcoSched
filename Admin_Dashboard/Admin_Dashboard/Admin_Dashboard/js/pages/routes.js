@@ -265,7 +265,7 @@ function generateMockRoutes() {
             collector: collectors[Math.floor(Math.random() * collectors.length)],
             progress: Math.floor(Math.random() * 100),
             eta: i % 4 === 0 ? '45 min' : i % 4 === 1 ? '2.5 hours' : i % 4 === 2 ? 'Completed' : 'Delayed',
-            startTime: `${8 + Math.floor(Math.random() * 8)}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`,
+            startTime: formatTimeLabel(`${8 + Math.floor(Math.random() * 8)}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`),
             estimatedDuration: Math.floor(Math.random() * 6) + 2,
             createdAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000)
         };
@@ -649,6 +649,25 @@ function exportRoutes() {
 }
 
 // Utility functions
+function formatTimeLabel(timeStr) {
+    if (!timeStr) return '—';
+    if (timeStr.includes('AM') || timeStr.includes('PM')) return timeStr;
+    
+    try {
+        const parts = timeStr.split(':');
+        const hour = parseInt(parts[0], 10);
+        const minute = parseInt(parts[1], 10);
+        
+        if (isNaN(hour) || isNaN(minute)) return timeStr;
+        
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const h12 = hour % 12 || 12;
+        return `${h12.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} ${ampm}`;
+    } catch (e) {
+        return timeStr;
+    }
+}
+
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {

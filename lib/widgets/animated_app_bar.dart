@@ -347,10 +347,11 @@ class _AnimatedSliverAppBarState extends State<AnimatedSliverAppBar>
             builder: (context, child) {
               return Opacity(
                 opacity: _fadeAnimation.value,
-                child: const Icon(
-                  Icons.eco,
-                  size: 60,
-                  color: AppTheme.primaryGreen,
+                child: Image.asset(
+                  'assets/images/ecosched_logo.png',
+                  width: 60,
+                  height: 60,
+                  fit: BoxFit.contain,
                 ),
               );
             },

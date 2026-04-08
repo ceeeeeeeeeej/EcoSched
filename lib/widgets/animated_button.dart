@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 
 class AnimatedButton extends StatefulWidget {
-  final String text;
+  final String? text;
   final VoidCallback? onPressed;
   final Color? backgroundColor;
   final Color? textColor;
@@ -15,10 +15,12 @@ class AnimatedButton extends StatefulWidget {
   final List<Color>? gradientColors;
   final double borderRadius;
   final EdgeInsetsGeometry? padding;
+  final Widget? child; // Custom child
 
   const AnimatedButton({
     super.key,
-    required this.text,
+    this.text = '', // Made text optional/default empty
+    this.child,
     this.onPressed,
     this.backgroundColor,
     this.textColor,
@@ -85,9 +87,6 @@ class _AnimatedButtonState extends State<AnimatedButton>
     _rippleController.forward();
   }
 
-  void _onTapUp(TapUpDetails details) {
-    _scaleController.reverse();
-  }
 
   void _onTapCancel() {
     _scaleController.reverse();
@@ -95,77 +94,75 @@ class _AnimatedButtonState extends State<AnimatedButton>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: _onTapDown,
-      onTapUp: _onTapUp,
-      onTapCancel: _onTapCancel,
-      onTap: widget.onPressed,
+    return Transform.scale(
+      scale: _scaleAnimation.value,
       child: AnimatedBuilder(
         animation: Listenable.merge([_scaleAnimation, _rippleAnimation]),
         builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: Container(
-              width: widget.width,
-              height: widget.height ?? 56,
-              decoration: BoxDecoration(
-                gradient: widget.isGradient
-                    ? LinearGradient(
-                        colors: widget.gradientColors ?? AppTheme.primaryGradient,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : null,
-                color: widget.isGradient
-                    ? null
-                    : widget.isOutlined
-                        ? Colors.transparent
-                        : widget.backgroundColor ?? AppTheme.primaryGreen,
+          return Container(
+            width: widget.width,
+            height: widget.height ?? 56,
+            decoration: BoxDecoration(
+              gradient: widget.isGradient
+                  ? LinearGradient(
+                      colors: widget.gradientColors ?? AppTheme.primaryGradient,
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+              color: widget.isGradient
+                  ? null
+                  : widget.isOutlined
+                      ? Colors.transparent
+                      : widget.backgroundColor ?? AppTheme.primaryGreen,
+              borderRadius: BorderRadius.circular(widget.borderRadius),
+              border: widget.isOutlined
+                  ? Border.all(
+                      color: widget.backgroundColor ?? AppTheme.primaryGreen,
+                      width: 2,
+                    )
+                  : null,
+              boxShadow: [
+                BoxShadow(
+                  color: (widget.backgroundColor ?? AppTheme.primaryGreen)
+                      .withOpacity(0.25),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
+                ),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
                 borderRadius: BorderRadius.circular(widget.borderRadius),
-                border: widget.isOutlined
-                    ? Border.all(
-                        color: widget.backgroundColor ?? AppTheme.primaryGreen,
-                        width: 2,
-                      )
-                    : null,
-                boxShadow: [
-                  BoxShadow(
-                    color: (widget.backgroundColor ?? AppTheme.primaryGreen)
-                        .withOpacity(0.25),
-                    blurRadius: 12,
-                    offset: const Offset(0, 6),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(widget.borderRadius),
-                  onTap: widget.onPressed,
-                  child: Container(
-                    padding: widget.padding ??
-                        const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
-                        ),
-                    child: Stack(
-                      children: [
-                        Center(
-                          child: widget.isLoading
-                              ? SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    color: widget.textColor ?? Colors.white,
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : Row(
+                onTap: widget.onPressed,
+                onTapDown: _onTapDown,
+                onTapCancel: _onTapCancel,
+                child: Container(
+                  padding: widget.padding ??
+                      const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: widget.isLoading
+                            ? SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: widget.textColor ?? Colors.white,
+                                  strokeWidth: 2.5,
+                                ),
+                              )
+                            : widget.child ??
+                                Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     if (widget.icon != null) ...[
@@ -176,30 +173,31 @@ class _AnimatedButtonState extends State<AnimatedButton>
                                       ),
                                       const SizedBox(width: 8),
                                     ],
-                                    Text(
-                                      widget.text,
-                                      style: TextStyle(
-                                        color: widget.textColor ?? Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5,
+                                    if (widget.text != null &&
+                                        widget.text!.isNotEmpty)
+                                      Text(
+                                        widget.text!,
+                                        style: TextStyle(
+                                          color: widget.textColor ?? Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.5,
+                                        ),
                                       ),
-                                    ),
                                   ],
                                 ),
-                        ),
-                        // Ripple effect
-                        if (_rippleAnimation.value > 0)
-                          Positioned.fill(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(widget.borderRadius),
-                                color: Colors.white.withOpacity(0.2 * _rippleAnimation.value),
-                              ),
+                      ),
+                      // Ripple effect
+                      if (_rippleAnimation.value > 0)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(widget.borderRadius),
+                              color: Colors.white.withOpacity(0.2 * _rippleAnimation.value),
                             ),
                           ),
-                      ],
-                    ),
+                        ),
+                    ],
                   ),
                 ),
               ),

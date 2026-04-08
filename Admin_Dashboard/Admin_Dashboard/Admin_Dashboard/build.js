@@ -18,7 +18,7 @@ const FILES_TO_PROCESS = {
         'html/registration.html',
         'html/dashboard.html',
         'html/users.html',
-        'html/collectors.html',
+
         'html/routes.html',
         'html/schedules.html',
         'html/special-collections.html',
@@ -33,7 +33,7 @@ const FILES_TO_PROCESS = {
         'css/main.css',
         'css/dashboard.css',
         'css/pages/users.css',
-        'css/pages/collectors.css',
+
         'css/pages/routes.css',
         'css/pages/schedules.css',
         'css/pages/analytics.css',
@@ -45,8 +45,7 @@ const FILES_TO_PROCESS = {
         'js/dashboard.js',
         'js/landing.js',
         'js/pages/users.js',
-        'js/pages/collectors.js',
-        'js/pages/registered_collectors.js',
+
         'js/pages/routes.js',
         'js/pages/schedules.js',
         'js/pages/special-collections.js',

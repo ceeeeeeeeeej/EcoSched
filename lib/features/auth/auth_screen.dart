@@ -119,10 +119,11 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(
-                                        Icons.eco,
-                                        size: 50,
-                                        color: Colors.white,
+                                      child: Image.asset(
+                                        'assets/images/ecosched_logo.png',
+                                        width: 60,
+                                        height: 60,
+                                        fit: BoxFit.contain,
                                       ),
                                     ),
                                   ),

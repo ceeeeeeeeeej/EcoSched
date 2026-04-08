@@ -22,10 +22,8 @@ class _BarangaySelectionState extends State<BarangaySelection> {
   bool isLoading = false;
 
   final List<String> barangays = [
-    "mahayag",
     "victoria",
     "dayo-an",
-    "visitors",
   ];
 
   Future<void> verifyAndSave() async {

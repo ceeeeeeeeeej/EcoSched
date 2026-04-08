@@ -14,7 +14,6 @@ class MainDrawer extends StatelessWidget {
     final auth = Provider.of<AuthService>(context, listen: false);
     final String displayName = (auth.user?['displayName'] as String?) ?? 'User';
     final String email = (auth.user?['email'] as String?) ?? '';
-    final bool isCollector = auth.isCollector();
 
     return Drawer(
       child: SafeArea(
@@ -26,65 +25,59 @@ class MainDrawer extends StatelessWidget {
               child: ListView(
                 padding: EdgeInsets.zero,
                 children: [
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.home_outlined),
-                      title: const Text('Home'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.residentDashboard);
-                      },
-                    ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.schedule_outlined),
-                      title: const Text('Schedule Pickup'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.schedulePickup);
-                      },
-                    ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.history_outlined),
-                      title: const Text('Collection History'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.residentCollectionHistory);
-                      },
-                    ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.compost_outlined),
-                      title: const Text('Nearest Compost Pits'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.compostPitFinder);
-                      },
-                    ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.feedback_outlined),
-                      title: const Text('Feedback'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.residentFeedback);
-                      },
-                    ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.tips_and_updates_outlined),
-                      title: const Text('Eco Tips & Guides'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).pushNamed(AppRoutes.ecoTips);
-                      },
-                    ),
+                  ListTile(
+                    leading: const Icon(Icons.home_outlined),
+                    title: const Text('Home'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.residentDashboard);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.schedule_outlined),
+                    title: const Text('Schedule Pickup'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.schedulePickup);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.history_outlined),
+                    title: const Text('Collection History'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.residentCollectionHistory);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.compost_outlined),
+                    title: const Text('Nearest Compost Pits'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.compostPitFinder);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.feedback_outlined),
+                    title: const Text('Feedback'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.residentFeedback);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.tips_and_updates_outlined),
+                    title: const Text('Eco Tips & Guides'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).pushNamed(AppRoutes.ecoTips);
+                    },
+                  ),
                   ListTile(
                     leading: const Icon(Icons.person_outline),
                     title: const Text('Profile'),
@@ -101,16 +94,15 @@ class MainDrawer extends StatelessWidget {
                       Navigator.of(context).pushNamed(AppRoutes.settings);
                     },
                   ),
-                  if (!isCollector)
-                    ListTile(
-                      leading: const Icon(Icons.notifications_outlined),
-                      title: const Text('Notifications'),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context)
-                            .pushNamed(AppRoutes.residentNotifications);
-                      },
-                    ),
+                  ListTile(
+                    leading: const Icon(Icons.notifications_outlined),
+                    title: const Text('Notifications'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context)
+                          .pushNamed(AppRoutes.residentNotifications);
+                    },
+                  ),
                   ListTile(
                     leading: const Icon(Icons.help_outline),
                     title: const Text('Help & Feedback'),

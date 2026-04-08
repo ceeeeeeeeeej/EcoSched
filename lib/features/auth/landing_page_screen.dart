@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../widgets/enhanced_nature_background.dart';
 import '../../widgets/glassmorphic_container.dart';
-import '../../widgets/animated_button.dart';
 import '../../widgets/nature_animations.dart';
 import '../../core/transitions/nature_transitions.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/pickup_service.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/localization/translations.dart';
+import '../../core/providers/language_provider.dart';
 import 'package:provider/provider.dart';
 
 class LandingPageScreen extends StatefulWidget {
@@ -74,13 +75,10 @@ class _LandingPageScreenState extends State<LandingPageScreen>
     _slideController.forward();
     _pulseController.repeat(reverse: true);
 
-    // If already authenticated (collector), skip landing and go straight to home
     // Residents don't need authentication, so they always see landing page
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      if (auth.isAuthenticated && auth.isCollector()) {
-        context.goHomeForRole();
-      }
+      // final auth = Provider.of<AuthService>(context, listen: false);
+      // Collector auto-jump removed
     });
   }
 
@@ -115,13 +113,9 @@ class _LandingPageScreenState extends State<LandingPageScreen>
     if (value.contains('victoria')) return 'victoria';
     if (value.contains('dayo-an') || value.contains('dayo-ay'))
       return 'dayo-an';
-    if (value.contains('visitor')) return 'visitors';
     return 'victoria';
   }
 
-  void _navigateToCollectorLogin() {
-    Navigator.of(context).pushNamed(AppRoutes.collectorLogin);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -131,190 +125,171 @@ class _LandingPageScreenState extends State<LandingPageScreen>
           EnhancedNatureBackground(
             showPattern: true,
             child: SafeArea(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(AppTheme.spacing8),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 20),
-
-                    // App Logo and Title
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 10,
+                    right: 20,
+                    child: Consumer<LanguageProvider>(
+                      builder: (context, lang, _) {
+                        return NatureRippleEffect(
+                          rippleColor: AppTheme.primary,
+                          child: TextButton.icon(
+                            style: TextButton.styleFrom(
+                              backgroundColor: Colors.white.withOpacity(0.15),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                                icon: const Icon(Icons.language, size: 18),
+                                label: Text(
+                                  lang.isBisaya ? 'English' : 'Bisaya',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: () => lang.toggleLanguage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      SingleChildScrollView(
+                        padding: EdgeInsets.all(AppTheme.spacing8),
                         child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            AnimatedBuilder(
-                              animation: _pulseAnimation,
-                              builder: (context, child) {
-                                return Transform.scale(
-                                  scale: _pulseAnimation.value,
-                                  child: NatureHeroAnimation(
-                                    tag: 'landing_logo',
-                                    child: EcoPulseAnimation(
-                                      isActive: true,
-                                      child: NatureRippleEffect(
-                                        rippleColor: AppTheme.primaryGreen,
-                                        child: Container(
-                                          width: 120,
-                                          height: 120,
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: AppTheme.primaryGradient,
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                            ),
-                                            borderRadius:
-                                                BorderRadius.circular(30),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: AppTheme.primaryGreen
-                                                    .withOpacity(0.4),
-                                                blurRadius: 30,
-                                                offset: const Offset(0, 15),
-                                              ),
-                                            ],
-                                          ),
-                                          child: const Icon(
-                                            Icons.eco,
-                                            size: 60,
-                                            color: Colors.white,
+                            const SizedBox(height: 20),
+
+                            // App Logo and Title
+                            FadeTransition(
+                              opacity: _fadeAnimation,
+                              child: SlideTransition(
+                                position: _slideAnimation,
+                                child: Column(
+                                  children: [
+                                    AnimatedBuilder(
+                                      animation: _pulseAnimation,
+                                      builder: (context, child) {
+                                        return Transform.scale(
+                                          scale: _pulseAnimation.value,
+                                          child: NatureHeroAnimation(
+                                            tag: 'landing_logo',
+                                            child: EcoPulseAnimation(
+                                              isActive: true,
+                                              child: NatureRippleEffect(
+                                                rippleColor: AppTheme.primaryGreen,
+                                                child: Container(
+                                                  width: 120,
+                                                  height: 120,
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      colors: AppTheme.primaryGradient,
+                                                      begin: Alignment.topLeft,
+                                                      end: Alignment.bottomRight,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(30),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: AppTheme.primaryGreen
+                                                            .withOpacity(0.4),
+                                                        blurRadius: 30,
+                                                        offset: const Offset(0, 15),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: Image.asset(
+                                                    'assets/images/ecosched_logo.png',
+                                                    width: 80,
+                                                    height: 80,
+                                                    fit: BoxFit.contain,
+                                                  ),
+                                                ),
                                           ),
                                         ),
                                       ),
-                                    ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 24),
+                                NatureBounceAnimation(
+                                  isActive: true,
+                                  child: Text(
+                                    context.tr('experience_ecosched'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.textDark,
+                                          letterSpacing: -0.5,
+                                        ),
+                                    textAlign: TextAlign.center,
                                   ),
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 24),
-                            NatureBounceAnimation(
-                              isActive: true,
-                              child: Text(
-                                'Experience EcoSched',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: AppTheme.textDark,
-                                      letterSpacing: -0.5,
-                                    ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            EcoShimmerEffect(
-                              isActive: true,
-                              baseColor: AppTheme.textLight.withOpacity(0.3),
-                              highlightColor: AppTheme.textLight,
-                              child: Text(
-                                'Select your location to begin',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleSmall
-                                    ?.copyWith(
-                                      color: AppTheme.textLight,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 50),
-
-                    // Barangay Selection Cards
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: Column(
-                          children: [
-                            // Victoria Card
-                            _buildBarangayCard(
-                              'Victoria',
-                              Icons.location_city_rounded,
-                              AppTheme.primary,
-                              AppTheme.primaryGradient,
-                              'Access local schedules for Victoria',
-                            ),
-                            const SizedBox(height: 20),
-                            // Dayo-an Card
-                            _buildBarangayCard(
-                              'Dayo-an',
-                              Icons.location_city_rounded,
-                              AppTheme.accentBlue,
-                              AppTheme.secondaryGradient,
-                              'Access local schedules for Dayo-an',
-                            ),
-                            const SizedBox(height: 20),
-                            // Visitors Card
-                            _buildBarangayCard(
-                              'Visitors',
-                              Icons.people_alt_rounded,
-                              AppTheme.accentBlue,
-                              AppTheme.secondaryGradient,
-                              'Access general information as a visitor',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 40),
-
-                    // Collector Login Button
-                    FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: Column(
-                          children: [
-                            Text(
-                              'Waste Collector?',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                    color: AppTheme.textMuted,
-                                    fontWeight: FontWeight.w600,
+                                ),
+                                const SizedBox(height: 8),
+                                EcoShimmerEffect(
+                                  isActive: true,
+                                  baseColor: AppTheme.textLight.withOpacity(0.3),
+                                  highlightColor: AppTheme.textLight,
+                                  child: Text(
+                                    context.tr('select_location_begin'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                          color: AppTheme.textLight,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                    textAlign: TextAlign.center,
                                   ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 16),
-                            NatureRippleEffect(
-                              rippleColor: AppTheme.accentBlue,
-                              child: AnimatedButton(
-                                text: 'Collector Sign In',
-                                onPressed: _navigateToCollectorLogin,
-                                width: double.infinity,
-                                icon: Icons.local_shipping_rounded,
-                                backgroundColor: AppTheme.accentBlue,
-                                isGradient: true,
-                                gradientColors: AppTheme.secondaryGradient,
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
 
-                    const SizedBox(height: 30),
-                  ],
-                ),
+                        const SizedBox(height: 50),
+
+                        // Barangay Selection Cards
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Column(
+                              children: [
+                                // Victoria Card
+                                _buildBarangayCard(
+                                  context.tr('victoria'),
+                                  Icons.location_city_rounded,
+                                  AppTheme.primary,
+                                  AppTheme.primaryGradient,
+                                  context.tr('access_schedules_victoria'),
+                                ),
+                                const SizedBox(height: 20),
+                                // Dayo-an Card
+                                _buildBarangayCard(
+                                  context.tr('dayo_an'),
+                                  Icons.location_city_rounded,
+                                  AppTheme.accentBlue,
+                                  AppTheme.secondaryGradient,
+                                  context.tr('access_schedules_dayo_an'),
+                                ),
+                                const SizedBox(height: 20),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 30),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
           // Floating Nature Elements (non-interactive)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
+          Positioned.fill(
             child: IgnorePointer(
               child: FloatingLeaves(
                 leafCount: 15,
@@ -324,11 +299,7 @@ class _LandingPageScreenState extends State<LandingPageScreen>
               ),
             ),
           ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
+          Positioned.fill(
             child: IgnorePointer(
               child: FloatingParticles(
                 particleCount: 20,
@@ -449,7 +420,7 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Select',
+                            context.tr('select'),
                             style: TextStyle(
                               color: color,
                               fontWeight: FontWeight.w600,

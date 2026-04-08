@@ -1,5 +1,5 @@
 // Notifications page functionality
-import { dbService, realtime } from '../../config/supabase_config.js';
+import { dbService, realtime, utils } from '../../config/supabase_config.js';
 
 console.log('🔔 Notifications page loaded');
 
@@ -7,13 +7,31 @@ console.log('🔔 Notifications page loaded');
 let notifications = [];
 let filteredNotifications = [];
 let sensorSubscription = null;
+let currentAdminId = null;
+let pendingRead = new Set(); // Track IDs currently being marked as read
+
+// Get current user ID from localStorage
+function getCurrentAdminId() {
+    try {
+        const rawData = localStorage.getItem('userData');
+        if (rawData) {
+            const parsed = JSON.parse(rawData);
+            // Support multiple possible key names for maximum robustness
+            const id = parsed.uid || parsed.id || parsed.userId || null;
+            return id ? String(id).toLowerCase() : null;
+        }
+    } catch (e) {
+        console.error('Error parsing user data:', e);
+    }
+    return null;
+}
 
 // Initialize page
 document.addEventListener('DOMContentLoaded', function () {
     console.log('🔔 Initializing notifications page...');
+    currentAdminId = getCurrentAdminId();
     loadNotifications();
     setupRealtimeSubscription();
-    setupFilterListeners();
 });
 
 // Cleanup subscriptions on page unload
@@ -23,14 +41,12 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
-// Load notifications from Supabase and merge with localStorage
+// Load notifications from Supabase
 async function loadNotifications() {
-    console.log('🔄 Loading persistent notifications...');
+    console.log('🔄 Loading notifications...');
 
-    // 1. Fetch real notifications from Supabase
-    // Parallel fetch for personal notifications AND announcements
     const [personalReq, communityReq] = await Promise.all([
-        dbService.getGenericNotifications(100),
+        dbService.getNotifications(100, currentAdminId),
         dbService.getCommunityNotifications(50)
     ]);
 
@@ -40,65 +56,60 @@ async function loadNotifications() {
     if (dbError) console.error('❌ Error fetching notifications:', dbError);
     if (commError) console.error('❌ Error fetching announcements:', commError);
 
-    // 2. Map personal notifications
+    // Map personal notifications
     const personalMapped = (dbNotifications || []).map(n => ({
         ...n,
         timestamp: n.createdAt || n.timestamp,
         priority: n.priority || 'low',
-        source: 'personal'
+        source: 'personal',
+        read: pendingRead.has(n.id) ? true : n.read
     }));
 
-    // 3. Map community notifications (announcements)
-    // Mark them as "system" type strictly for UI
+    // Map community notifications
     const communityMapped = (communityNotifs || []).map(n => ({
         ...n,
         timestamp: n.createdAt,
         type: 'system',
-        priority: 'medium', // Announcements are usually important
-        source: 'community'
+        priority: 'medium',
+        source: 'community',
+        read: true // Community announcements are default read for admins
     }));
 
-    // Remove duplicates and merge
+    // Sort and store
     notifications = [...personalMapped, ...communityMapped]
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
         .slice(0, 100);
 
-    filteredNotifications = [...notifications];
-
-    renderNotifications();
-    updateStats();
+    await renderNotifications();
 }
 
-// Setup real-time subscription for database notifications
+// Setup real-time subscription
 function setupRealtimeSubscription() {
-    if (!realtime || !realtime.subscribeToGenericNotifications) {
+    if (!realtime || !realtime.subscribeToNotifications) {
         console.warn('⚠️ Realtime notification subscription not available');
         return;
     }
 
     try {
-        sensorSubscription = realtime.subscribeToGenericNotifications(async (data, payload) => {
-            console.log('🔔 Persistent notification change detected:', payload);
-            notifications = data.map(n => ({
-                ...n,
-                timestamp: n.createdAt || n.timestamp,
-                priority: n.priority || 'low'
-            }));
-            applyFilters();
-            updateStats();
-        });
+        sensorSubscription = realtime.subscribeToNotifications(async (data, payload) => {
+            console.log('🔔 Notification change detected');
+            loadNotifications(); // Simplified reload
+        }, currentAdminId);
 
-        console.log('📡 Persistent notifications subscription active');
+        console.log('📡 Notification subscription active');
     } catch (error) {
-        console.error('❌ Failed to setup notification subscription:', error);
+        console.error('❌ Failed to setup subscription:', error);
     }
 }
 
 // Render notifications list
-function renderNotifications() {
+async function renderNotifications(skipStatUpdate = false) {
+    if (!skipStatUpdate) {
+        await updateStats();
+    }
     const container = document.getElementById('notificationsList');
 
-    if (filteredNotifications.length === 0) {
+    if (notifications.length === 0) {
         container.innerHTML = `
             <div style="text-align: center; padding: 60px 20px; color: #9CA3AF;">
                 <i class="fas fa-bell-slash" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
@@ -108,125 +119,133 @@ function renderNotifications() {
         return;
     }
 
-    container.innerHTML = filteredNotifications.map(notif => {
-        const timeAgo = getTimeAgo(notif.timestamp);
+    container.innerHTML = notifications.map(notif => {
+        const timeStr = utils.getRelativeTime(notif.timestamp);
         const priorityClass = notif.priority || 'low';
         const readClass = notif.read ? 'read' : 'unread';
 
+        // Get icon and class based on type
+        let icon = '<i class="fas fa-bell"></i>';
+        let iconClass = 'system';
+        
+        if (notif.type === 'feedback') {
+            icon = '<i class="fas fa-comment-alt"></i>';
+            iconClass = 'user';
+        } else if (notif.type === 'special_collection' || notif.type === 'pickup_request') {
+            icon = '<i class="fas fa-truck-loading"></i>';
+            iconClass = 'collector';
+        } else if (notif.type === 'bin_alert' || notif.type === 'alert') {
+            icon = '<i class="fas fa-exclamation-triangle"></i>';
+            iconClass = 'iot';
+        } else if (notif.type === 'new_user') {
+            icon = '<i class="fas fa-user-plus"></i>';
+            iconClass = 'user';
+        }
+
         return `
-            <div class="notification-item ${readClass} priority-${priorityClass}" data-id="${notif.id}">
-                <div class="notification-icon ${priorityClass}">
-                    ${getPriorityIcon(notif.priority)}
+            <div class="notification-item ${readClass} priority-${priorityClass}" data-id="${notif.id}" onclick="handleNotificationClick(event, '${notif.id}', ${notif.read}, '${notif.type}')">
+                <div class="notification-icon ${iconClass}">
+                    ${icon}
                 </div>
                 <div class="notification-content">
                     <div class="notification-header">
                         <h4 class="notification-title">${notif.title}</h4>
-                        <span class="notification-time">${timeAgo}</span>
+                        <span class="notification-time">${timeStr}</span>
                     </div>
                     <p class="notification-message">${notif.message}</p>
-                    <div class="notification-meta">
-                        <span class="notification-type">
-                            <i class="fas fa-tag"></i> ${notif.type}
-                        </span>
-                        <span class="notification-priority">
-                            <i class="fas fa-flag"></i> ${notif.priority}
-                        </span>
-                    </div>
-                </div>
-                <div class="notification-actions">
-                    ${!notif.read ? `<button class="btn-icon" onclick="markAsRead('${notif.id}')" title="Mark as read">
-                        <i class="fas fa-check"></i>
-                    </button>` : ''}
-                    <button class="btn-icon" onclick="deleteNotification('${notif.id}')" title="Delete">
-                        <i class="fas fa-trash"></i>
-                    </button>
                 </div>
             </div>
         `;
     }).join('');
 }
 
-// Update statistics
-function updateStats() {
-    const unread = notifications.filter(n => !n.read).length;
-    const urgent = notifications.filter(n => n.priority === 'urgent').length;
-    const today = notifications.filter(n => {
-        const notifDate = new Date(n.timestamp);
-        const todayDate = new Date();
-        return notifDate.toDateString() === todayDate.toDateString();
-    }).length;
-
-    document.getElementById('unreadCount').textContent = unread;
-    document.getElementById('urgentCount').textContent = urgent;
-    document.getElementById('todayCount').textContent = today;
-}
-
-// Setup filter listeners
-function setupFilterListeners() {
-    const typeFilter = document.getElementById('typeFilter');
-    const priorityFilter = document.getElementById('priorityFilter');
-    const statusFilter = document.getElementById('statusFilter');
-
-    [typeFilter, priorityFilter, statusFilter].forEach(filter => {
-        filter.addEventListener('change', applyFilters);
-    });
-}
-
-// Apply filters
-function applyFilters() {
-    const typeFilter = document.getElementById('typeFilter').value;
-    const priorityFilter = document.getElementById('priorityFilter').value;
-    const statusFilter = document.getElementById('statusFilter').value;
-
-    filteredNotifications = notifications.filter(notif => {
-        if (typeFilter && notif.type !== typeFilter) return false;
-        if (priorityFilter && notif.priority !== priorityFilter) return false;
-        if (statusFilter === 'read' && !notif.read) return false;
-        if (statusFilter === 'unread' && notif.read) return false;
-        return true;
-    });
-
-    renderNotifications();
-}
-
-// Reset filters
-window.resetFilters = function () {
-    document.getElementById('typeFilter').value = '';
-    document.getElementById('priorityFilter').value = '';
-    document.getElementById('statusFilter').value = '';
-    applyFilters();
-};
-
 // Mark notification as read
 window.markAsRead = async function (id) {
-    console.log('🔄 Marking notification as read:', id);
-    const { error } = await dbService.updateNotification(id, { read: true });
+    console.log('🔄 Marking as read:', id);
+    if (pendingRead.has(id)) return;
+    
+    // OPTIMISTIC UPDATE: Update local state immediately
+    const notif = notifications.find(n => n.id === id);
+    if (notif && !notif.read) {
+        pendingRead.add(id); // Lock this ID as read
+        notif.read = true;
+        
+        // Update counts LOCALLY
+        const elUnread = document.getElementById('unreadCount');
+        if (elUnread) {
+            const currentCount = parseInt(elUnread.textContent) || 0;
+            elUnread.textContent = Math.max(0, currentCount - 1);
+        }
+        
+        // Re-render list
+        await renderNotifications(true); 
+        
+        // Update database
+        const { error } = await dbService.updateNotification(id, { read: true });
+        
+        // Delay clearing from pendingRead to ensure realtime events have passed
+        setTimeout(() => {
+            pendingRead.delete(id);
+        }, 3000);
 
-    if (error) {
-        console.error('❌ Failed to mark as read:', error);
+        if (error) {
+            console.error('❌ Failed to update DB:', error);
+            pendingRead.delete(id); // Immediate revert on error
+        }
+        
+        // Notify parent dashboard to update its badge
+        if (window.parent && typeof window.parent.updateBadge === 'function') {
+            await window.parent.updateBadge();
+        }
+    }
+};
+
+// Handle clicking on the entire notification item
+window.handleNotificationClick = async function (event, id, isRead, type) {
+    console.log('👆 Notification clicked:', { id, isRead, type });
+    
+    // Don't trigger if a button was clicked
+    if (event.target.closest('button')) {
         return;
     }
 
-    const notif = notifications.find(n => n.id === id);
-    if (notif) {
-        notif.read = true;
-        renderNotifications();
-        updateStats();
+    if (!isRead) {
+        await markAsRead(id); 
+        // Small 100ms delay to ensure the fetch request is fully "finalized" 
+        // by the browser network stack before we destroy the iframe via navigation
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Navigation logic based on type
+    if (window.parent && typeof window.parent.navigateToPage === 'function') {
+        if (type === 'special_collection') {
+            window.parent.navigateToPage('special-collections');
+        } else if (type === 'feedback') {
+            window.parent.navigateToPage('feedback');
+        } else if (type === 'new_user') {
+            window.parent.navigateToPage('users');
+        } else if (type === 'alert') {
+            window.parent.navigateToPage('dashboard');
+        }
     }
 };
 
-// Mark all as read
 window.markAllRead = async function () {
     console.log('🔄 Marking all as read...');
-    const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
+    const { data: dbNotifications } = await dbService.getNotifications(100, currentAdminId);
+    const unreadIds = (dbNotifications || []).filter(n => !n.read).map(n => n.id);
 
     for (const id of unreadIds) {
         await dbService.updateNotification(id, { read: true });
     }
 
     notifications.forEach(n => n.read = true);
-    renderNotifications();
-    updateStats();
+    await renderNotifications();
+    
+    // Notify parent dashboard to update its badge
+    if (window.parent && typeof window.parent.updateBadge === 'function') {
+        await window.parent.updateBadge();
+    }
 };
 
 // Delete notification
@@ -240,32 +259,50 @@ window.deleteNotification = async function (id) {
     }
 
     notifications = notifications.filter(n => n.id !== id);
-    filteredNotifications = filteredNotifications.filter(n => n.id !== id);
     renderNotifications();
-    updateStats();
 };
+
+// Update statistics
+async function updateStats() {
+    try {
+        const adminId = getCurrentAdminId();
+        if (!adminId) return; // Don't fetch if no admin context
+        
+        // Get true unread counts from DB for accurate reporting
+        const { unread: trueUnread } = await dbService.getNotificationCounts(adminId);
+        
+        const total = notifications.length; // Total loaded in list
+        const unread = trueUnread;
+
+        const now = new Date();
+        const todayStr = now.toDateString();
+        
+        const todayCount = notifications.filter(n => {
+            if (!n.timestamp) return false;
+            let ts = n.timestamp;
+            if (typeof ts === 'string' && !ts.includes('Z') && !ts.includes('+')) {
+                ts += 'Z';
+            }
+            return new Date(ts).toDateString() === todayStr;
+        }).length;
+
+        const elTotal = document.getElementById('totalCount');
+        const elUnread = document.getElementById('unreadCount');
+        const elToday = document.getElementById('todayCount');
+        
+        if (elTotal) elTotal.textContent = total;
+        if (elUnread) elUnread.textContent = unread;
+        if (elToday) elToday.textContent = todayCount;
+    } catch (error) {
+        console.error('Error updating notification stats:', error);
+    }
+}
 
 // Cleanup: remove local saving logic since we use DB now
 function saveNotifications() {
     // No longer needed
 }
 
-// Helper: Get time ago string
-function getTimeAgo(timestamp) {
-    const now = new Date();
-    const time = new Date(timestamp);
-    const diff = now - time;
-
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-    return time.toLocaleDateString();
-}
 
 // Helper: Get priority icon
 function getPriorityIcon(priority) {

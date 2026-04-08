@@ -9,7 +9,15 @@
     },
     "liveServer.settings.port": 5501,
     "deno.enablePaths": [
-        "supabase/functions"
+        "supabase/functions",
+        "check_collector_devices.ts",
+        "check_collectors.ts",
+        "check_columns.ts",
+        "check_devices.ts",
+        "check_users.ts",
+        "compare_ids.ts",
+        "debug_notifs.ts",
+        "list_devices.ts"
     ],
     "deno.unstable": true
 }

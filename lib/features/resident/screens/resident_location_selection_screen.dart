@@ -32,8 +32,6 @@ class _ResidentLocationSelectionScreenState
   static const _allowedBarangays = [
     'Victoria, Tago, Surigao del Sur',
     'Dayo-an, Tago, Surigao del Sur',
-    'Mahayag, San Miguel, Surigao del Sur',
-    'Visitors',
   ];
 
   String? _selectedBarangay;
@@ -262,19 +260,6 @@ class _ResidentLocationSelectionScreenState
                               AppTheme.secondary,
                             ),
                             const SizedBox(height: 12),
-                            // Mahayag Option
-                            _buildBarangayOption(
-                              _allowedBarangays[2],
-                              Icons.home_work_rounded,
-                              AppTheme.accentOrange,
-                            ),
-                            const SizedBox(height: 12),
-                            // Visitors Option
-                            _buildBarangayOption(
-                              _allowedBarangays[3],
-                              Icons.people_alt_rounded,
-                              AppTheme.primaryGreen,
-                            ),
 
                             if (_selectedBarangay != null) ...[
                               const SizedBox(height: 32),

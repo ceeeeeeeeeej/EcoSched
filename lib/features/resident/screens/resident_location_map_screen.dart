@@ -4,12 +4,14 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'dart:ui' as ui;
 
 import '../../../core/routes/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/pickup_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/bin_service.dart';
 
 class ResidentLocationMapScreen extends StatefulWidget {
   final String? barangay;
@@ -35,9 +37,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     'victoria, tago, surigao del sur',
     'dayo-an',
     'dayo-an, tago, surigao del sur',
-    'dayo-ay',
     'dayo-ay, tago, surigao del sur',
-    'visitors',
   };
   static final List<_LatLngBounds> _serviceAreaBounds = [
     const _LatLngBounds(
@@ -52,12 +52,6 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
       minLongitude: 126.1500,
       maxLongitude: 126.2100,
     ), // Dayo-ay / Dayo-an stretch
-    const _LatLngBounds(
-      minLatitude: 9.0800,
-      maxLatitude: 9.1200,
-      minLongitude: 126.1800,
-      maxLongitude: 126.2300,
-    ), // Mahayag core
   ];
   static final List<_LatLngBounds> _developerSandboxBounds = [
     const _LatLngBounds(
@@ -82,12 +76,14 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
   @override
   void initState() {
     super.initState();
-    if (_isBarangaySupported) {
-      _fetchCurrentLocation();
-    } else {
-      _locationError =
-          'EcoSched is currently limited to Victoria, Dayo-an, and Visitors in Tago, Surigao del Sur.';
-    }
+    _fetchCurrentLocation();
+    Future.microtask(() {
+      if (mounted) {
+        final auth = context.read<AuthService>();
+        final b = widget.barangay ?? auth.user?['barangay'] ?? 'victoria';
+        context.read<BinService>().loadBinsForArea(b);
+      }
+    });
   }
 
   Widget _buildUnsupportedBarangayCard(String barangayLabel) {
@@ -139,7 +135,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '• Victoria, Tago, Surigao del Sur\n• Dayo-an, Tago, Surigao del Sur\n• Mahayag, Tago, Surigao del Sur',
+              '• Victoria, Tago, Surigao del Sur\n• Dayo-an, Tago, Surigao del Sur',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: isDarkTheme
                     ? theme.colorScheme.onSurface.withOpacity(0.8)
@@ -179,9 +175,6 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     }
     if (value.contains('dayo-an') || value.contains('dayo-ay')) {
       return 'dayo-an';
-    }
-    if (value.contains('mahayag')) {
-      return 'mahayag';
     }
     return 'victoria';
   }
@@ -281,7 +274,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
           _isFetchingLocation = false;
           _developerBypassActive = false;
           _locationError =
-              'Your detected location is currently outside EcoSched’s supported coverage (Victoria, Dayo-ay, & Mahayag, Tago).';
+              'Your detected location is currently outside EcoSched’s supported coverage (Victoria, Dayo-ay).';
           _hasCoverageError = true;
           _hasBarangayMismatchError = false;
         });
@@ -385,15 +378,6 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
       }
       return false;
     }
-
-    if (barangay.contains('mahayag')) {
-      if (_serviceAreaBounds.length > 2) {
-        final mahayagBounds = _serviceAreaBounds[2];
-        return mahayagBounds.contains(point);
-      }
-      return false;
-    }
-
     return _isWithinServiceArea(point);
   }
 
@@ -408,42 +392,137 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final barangayLabel = widget.barangay ?? 'your barangay';
-
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final binService = context.watch<BinService>();
+    final bins = binService.bins;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Confirm Location — $barangayLabel'),
+        title: const Text('Bin Location'),
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildIntroCard(barangayLabel),
-                  const SizedBox(height: 16),
-                  if (_isBarangaySupported) ...[
-                    _buildCurrentLocationCard(),
-                    const SizedBox(height: 16),
-                    if (_hasManualDirections) ...[
-                      const SizedBox(height: 16),
-                      _buildLocationDetails(widget.currentLocation!.trim()),
-                    ],
-                  ] else ...[
-                    _buildUnsupportedBarangayCard(barangayLabel),
-                  ],
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentLatLng ?? _fallbackCenter,
+              initialZoom: _mapZoom,
+              onMapReady: _handleMapReady,
+              onMapEvent: _handleMapEvent,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+                userAgentPackageName: 'com.ecosched.app',
+              ),
+              MarkerLayer(
+                markers: [
+                  ...bins.map((bin) {
+                    final dynLat = bin['location_lat'] ?? bin['gps_lat'];
+                    final dynLng = bin['location_lng'] ?? bin['gps_lng'];
+                    if (dynLat == null || dynLng == null) return null;
+                    
+                    final lat = (dynLat is num) ? dynLat.toDouble() : double.tryParse(dynLat.toString()) ?? 0.0;
+                    final lng = (dynLng is num) ? dynLng.toDouble() : double.tryParse(dynLng.toString()) ?? 0.0;
+                    
+                    if (lat == 0.0 && lng == 0.0) return null;
+
+                    final fillLevel = bin['fill_level'] ?? 0;
+                    final isFull = fillLevel >= 80;
+                    
+                    return Marker(
+                      width: 180,
+                      height: 90,
+                      point: LatLng(lat, lng),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isFull ? AppTheme.accentOrange : AppTheme.primaryGreen,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black26,
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Bin location is here in ${bin['address'] ?? bin['location'] ?? ''}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const CustomPaint(
+                            size: Size(20, 10),
+                            painter: _TrianglePainter(),
+                          ),
+                          Icon(
+                            isFull ? Icons.warning_rounded : Icons.delete,
+                            color: isFull ? AppTheme.accentOrange : AppTheme.primaryGreen,
+                            size: 32,
+                          ),
+                        ],
+                      ),
+                    );
+                  }).whereType<Marker>(),
+                  if (_currentLatLng != null)
+                    Marker(
+                      width: 40,
+                      height: 40,
+                      point: _currentLatLng!,
+                      child: const Icon(
+                        Icons.my_location,
+                        color: Colors.blueAccent,
+                        size: 32,
+                      ),
+                    ),
                 ],
               ),
+            ],
+          ),
+          // Zoom & recenter controls
+          Positioned(
+            right: 12,
+            bottom: 80,
+            child: Column(
+              children: [
+                _MapIconButton(
+                  icon: Icons.zoom_in,
+                  onPressed: () => _changeZoom(0.5),
+                ),
+                const SizedBox(height: 8),
+                _MapIconButton(
+                  icon: Icons.zoom_out,
+                  onPressed: () => _changeZoom(-0.5),
+                ),
+                const SizedBox(height: 8),
+                _MapIconButton(
+                  icon: Icons.my_location,
+                  onPressed: _recenterMap,
+                ),
+              ],
             ),
           ),
-          _buildFooter(barangayLabel),
+          if (_isFetchingLocation)
+            const Center(child: CircularProgressIndicator()),
         ],
       ),
     );
@@ -1217,4 +1296,27 @@ class _MapIconButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TrianglePainter extends CustomPainter {
+  final Color color;
+  const _TrianglePainter({this.color = AppTheme.primaryGreen});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = ui.Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

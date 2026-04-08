@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/routes/app_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/reminder_service.dart';
 import '../../../widgets/gradient_background.dart';
@@ -17,8 +18,8 @@ class NotificationCenterScreen extends StatefulWidget {
 
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   String _relativeTime(DateTime date) {
-    final now = DateTime.now().toUtc();
-    final diff = now.difference(date.toUtc());
+    final now = DateTime.now();
+    final diff = now.difference(date);
     if (diff.inMinutes < 1) return 'Just now';
     if (diff.inHours < 1) return '${diff.inMinutes} minutes ago';
     if (diff.inDays < 1) return '${diff.inHours} hours ago';
@@ -54,6 +55,11 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.bug_report, size: 20, color: Colors.grey),
+            tooltip: 'Send Test Notification',
+            onPressed: () => reminderService.triggerTestNotification(),
+          ),
           if (unreadCount > 0)
             TextButton(
               onPressed: reminderService.markAllAsRead,
@@ -111,6 +117,23 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                                   if (id != null) {
                                     reminderService.markAsRead(id.toString());
                                   }
+                                  
+                                  final typeStr = (reminder['type']?.toString() ?? 'info').toLowerCase();
+                                  final titleStr = (reminder['title']?.toString() ?? '').toLowerCase();
+                                  
+                                  int targetNavIndex = 0; // Home by default
+                                  
+                                  if (typeStr == 'special_collection_status' || titleStr.contains('special collection')) {
+                                    targetNavIndex = 3; // Special Collection Tab (Nav Index 3)
+                                  } else if (typeStr == 'feedback_update' || titleStr.contains('feedback')) {
+                                    targetNavIndex = 1; // Feedback Tab (Nav Index 1)
+                                  }
+                                  
+                                  Navigator.of(context).pushNamedAndRemoveUntil(
+                                    AppRoutes.residentDashboard,
+                                    (route) => false,
+                                    arguments: {'initialNavIndex': targetNavIndex},
+                                  );
                                 },
                               );
                             },

@@ -1,0 +1,26 @@
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://bfqktqtsjchbmopafgzf.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmcWt0cXRzamNoYm1vcGFmZ3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMDgwMTIsImV4cCI6MjA4NTc4NDAxMn0.Xu7Ncwr5bWYF8x2t5h7XHw_nPrjlTSkQEdnQB4OtcNo';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function checkSchedules() {
+    const { data, error } = await supabase
+        .from('collection_schedules')
+        .select('*')
+        .order('scheduled_date', { ascending: false })
+        .limit(20);
+
+    if (error) {
+        console.error('Error fetching schedules:', error);
+        return;
+    }
+
+    console.log('--- Collection Schedules ---');
+    data.forEach(s => {
+        console.log(`[${s.id}] Area: ${s.zone}, Date: ${s.scheduled_date}, Status: ${s.status}, Type: ${s.name}`);
+    });
+}
+
+checkSchedules();
