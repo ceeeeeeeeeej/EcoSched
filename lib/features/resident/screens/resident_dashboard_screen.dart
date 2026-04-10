@@ -9,7 +9,6 @@ import 'package:google_nav_bar/google_nav_bar.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/responsive.dart';
-import '../../../core/utils/animations.dart';
 import '../../../core/services/pickup_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/reminder_service.dart';
@@ -18,10 +17,10 @@ import '../../../widgets/glassmorphic_container.dart';
 import '../../../widgets/premium_app_bar.dart';
 import '../../../widgets/live_scan_screen.dart';
 import '../../../widgets/gradient_background.dart';
-import '../../../widgets/modern_card.dart';
 import 'feedback_screen.dart';
 import 'resident_location_map_screen.dart';
 import 'special_collection_list_screen.dart';
+import '../widgets/schedule_card.dart';
 import '../../../core/routes/app_router.dart';
 
 class ResidentDashboardScreen extends StatefulWidget {
@@ -37,13 +36,16 @@ class ResidentDashboardScreen extends StatefulWidget {
       _ResidentDashboardScreenState();
 }
 
-class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
+class _ResidentDashboardScreenState extends State<ResidentDashboardScreen>
+    with WidgetsBindingObserver {
   int currentPage = 0;
   int currentNavIndex = 0;
+  String? _lastEffectiveArea;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     currentNavIndex = widget.initialNavIndex;
     currentPage = _mapNavIndexToPageIndex(widget.initialNavIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -73,6 +75,7 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
               '🏠 ResidentDashboard: Initializing for Area: $effectiveArea (raw: $serviceArea)');
           print('🏠 User Data: $user');
         }
+        _lastEffectiveArea = effectiveArea;
         Provider.of<PickupService>(context, listen: false)
             .loadSchedulesForServiceArea(effectiveArea);
       }
@@ -90,6 +93,26 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
         authService.addListener(listener);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _lastEffectiveArea != null) {
+      if (kDebugMode) {
+        print('🏠 ResidentDashboard: App resumed, refreshing schedules...');
+      }
+      Provider.of<PickupService>(context, listen: false)
+          .loadSchedulesForServiceArea(
+        _lastEffectiveArea!,
+        forceReload: true,
+      );
+    }
   }
 
   final List<Widget> pages = const [
@@ -294,48 +317,6 @@ class _EcoNavigationBar extends StatelessWidget {
               ],
             ),
           ),
-
-          /// Floating Camera Button
-          // AnimatedPositioned(
-          //   duration: const Duration(milliseconds: 260),
-          //   curve: Curves.easeOutBack,
-          //   // When Home (index 0) is selected, bring the camera noticeably closer to the bar
-          //   top: currentIndex == 0 ? -4 : -26,
-          //   child: GestureDetector(
-          //     onTap: onLiveScanPressed,
-          //     child: Container(
-          //       width: 66,
-          //       height: 66,
-          //       decoration: BoxDecoration(
-          //         color: Colors.white,
-          //         shape: BoxShape.circle,
-          //         boxShadow: [
-          //           BoxShadow(
-          //             color: AppTheme.accentBlue.withOpacity(0.35),
-          //             blurRadius: 16,
-          //             offset: const Offset(0, 6),
-          //           ),
-          //         ],
-          //       ),
-          //       child: Container(
-          //         margin: const EdgeInsets.all(5),
-          //         decoration: const BoxDecoration(
-          //           gradient: LinearGradient(
-          //             colors: [AppTheme.accentBlue, AppTheme.secondary],
-          //             begin: Alignment.topLeft,
-          //             end: Alignment.bottomRight,
-          //           ),
-          //           shape: BoxShape.circle,
-          //         ),
-          //         child: const Icon(
-          //           Icons.camera_alt_rounded,
-          //           color: Colors.white,
-          //           size: 28,
-          //         ),
-          //       ),
-          //     ),
-          //   ),
-          // ),
         ],
       ),
     );
@@ -466,8 +447,12 @@ class _HomePage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // New Reminder and Instructions Cards
+                        _buildReminderCard(context, responsive),
+                        _buildInstructionsCard(context, responsive),
+                        SizedBox(height: responsive.spacing(16)),
                         // Only upcoming collection card is shown to simplify UI
-                        _buildUpcomingCollectionCard(context, responsive),
+                        _buildUpcomingSection(context, responsive),
                         SizedBox(height: responsive.spacing(24)),
                         // assigned schedule section removed per request
                       ],
@@ -484,6 +469,273 @@ class _HomePage extends StatelessWidget {
 
   // Assigned schedule and empty state methods removed to simplify home screen
 
+  Widget _buildUpcomingSection(BuildContext context, Responsive responsive) {
+    final theme = Theme.of(context);
+    return Consumer<PickupService>(
+      builder: (context, pickupService, _) {
+        // Get user's service area
+        final auth = Provider.of<AuthService>(context, listen: false);
+        final user = auth.user;
+        final serviceArea = (user?['barangay'] ?? user?['location'] ?? '')
+            .toString()
+            .trim();
+
+        if (serviceArea.isEmpty) return const SizedBox.shrink();
+
+        // 1. Get Today's Pickups
+        final todayPickups = pickupService.pickupsForDate(DateTime.now());
+
+        // 2. Get Next Upcoming Pickup (if today is empty)
+        final nextPickup = pickupService.getNextCollection(serviceArea);
+
+        final bool hasToday = todayPickups.isNotEmpty;
+        final bool hasNext = nextPickup != null;
+
+        if (!hasToday && !hasNext) {
+          return const SizedBox.shrink();
+        }
+
+        final String sectionTitle =
+            hasToday ? "TODAY'S SCHEDULE" : "NEXT COLLECTION";
+        final List<Map<String, dynamic>> displayItems =
+            hasToday ? todayPickups : [nextPickup!];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: responsive.spacing(4)),
+              child: Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    sectionTitle,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: AppTheme.textDark.withOpacity(0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...displayItems.map((pickup) {
+              final date = pickup['date'] as DateTime;
+              final isRescheduled = pickup['isRescheduled'] ?? false;
+              
+              // Standardize Time Formatting: Convert raw '08:00:00' or DateTime to '8:00 AM'
+              String formattedTime = '08:00 AM';
+              try {
+                formattedTime = DateFormat('h:mm a').format(date);
+              } catch (e) {
+                formattedTime = pickup['time']?.toString() ?? '08:00 AM';
+              }
+
+              return ScheduleCard(
+                date: DateFormat('EEEE, MMM d').format(date),
+                time: formattedTime,
+                type: pickup['type']?.toString() ?? 'Waste Collection',
+                status: isRescheduled ? 'Rescheduled' : (hasToday ? 'Today' : 'Upcoming'),
+                isRescheduled: isRescheduled,
+                originalDate: pickup['originalDate'] as DateTime?,
+                rescheduledReason: pickup['rescheduledReason']?.toString(),
+              );
+            }).toList(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildReminderCard(BuildContext context, Responsive responsive) {
+    // Determine context brightness to adjust colors for dark mode context gracefully
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: EdgeInsets.only(bottom: responsive.spacing(16)),
+      padding: EdgeInsets.all(responsive.spacing(16)),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF3F2104) : const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(AppTheme.radiusM),
+        border: Border.all(
+            color: isDark
+                ? const Color(0xFF9A3412).withOpacity(0.5)
+                : const Color(0xFFFFEDD5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: Color(0xFFF97316), size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Reminder',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDark
+                        ? const Color(0xFFFDBA74)
+                        : const Color(0xFF9A3412),
+                    fontSize: 15 * responsive.fontSizeMultiplier,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      color: isDark
+                          ? const Color(0xFFFED7AA)
+                          : const Color(0xFFC2410C),
+                      fontSize: 13.5 * responsive.fontSizeMultiplier,
+                      height: 1.4,
+                      fontFamily:
+                          Theme.of(context).textTheme.bodyMedium?.fontFamily,
+                    ),
+                    children: const [
+                      TextSpan(
+                          text:
+                              'Do not place garbage along the highway unless it is your scheduled collection time.\n'),
+                      TextSpan(
+                        text:
+                            '(Ayaw ibutang ang basura daplin sa karsada gawas kung oras na sa imong naka-schedule nga koleksyon.)',
+                        style: TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionsCard(BuildContext context, Responsive responsive) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: responsive.spacing(8)),
+      padding: EdgeInsets.all(responsive.spacing(16)),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppTheme.backgroundSecondary.withOpacity(0.4)
+            : theme.cardColor,
+        borderRadius: BorderRadius.circular(AppTheme.radiusM),
+        boxShadow: isDark
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+        border: Border.all(color: AppTheme.primary.withOpacity(0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(Icons.push_pin_rounded,
+                  color: AppTheme.primaryGreen, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Instructions',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15 * responsive.fontSizeMultiplier,
+                  color: theme.textTheme.titleMedium?.color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildInstructionItem(
+              'Place garbage along the highway only during schedule\n(Ibutang ang basura daplin sa karsada sulod lamang sa oras sa eskedyul)',
+              responsive,
+              context),
+          const SizedBox(height: 12),
+          _buildInstructionItem(
+              'Use sealed bags\n(Paggamit og sirado nga mga bag)',
+              responsive,
+              context),
+          const SizedBox(height: 12),
+          _buildInstructionItem(
+              'Avoid blocking the road\n(Likayi ang pag-ali sa karsada)',
+              responsive,
+              context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionItem(
+      String text, Responsive responsive, BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.only(top: 6, left: 2, right: 2),
+          width: 5,
+          height: 5,
+          decoration: const BoxDecoration(
+            color: AppTheme.primaryGreen,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Builder(
+            builder: (context) {
+              final parts = text.split('\n');
+              final baseStyle = TextStyle(
+                fontSize: 13.5 * responsive.fontSizeMultiplier,
+                height: 1.4,
+                color: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.color
+                    ?.withOpacity(0.85),
+              );
+
+              if (parts.length == 1) {
+                return Text(text, style: baseStyle);
+              }
+
+              return RichText(
+                text: TextSpan(
+                  style: baseStyle,
+                  children: [
+                    TextSpan(text: '${parts[0]}\n'),
+                    TextSpan(
+                      text: parts.sublist(1).join('\n'),
+                      style: const TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   String _formatAssignedDate(dynamic rawDate) {
     if (rawDate is DateTime) {
       return _formatDate(rawDate);
@@ -496,253 +748,6 @@ class _HomePage extends StatelessWidget {
 
   String _formatDate(DateTime date) {
     return DateFormat('MMMM d, yyyy').format(date);
-  }
-
-  Widget _buildUpcomingCollectionCard(
-      BuildContext context, Responsive responsive) {
-    final theme = Theme.of(context);
-    return Consumer<PickupService>(
-      builder: (context, pickupService, _) {
-        // Get user's service area
-        final auth = Provider.of<AuthService>(context, listen: false);
-        final user = auth.user;
-        final serviceArea = user?['barangay'] ?? user?['location'] ?? '';
-
-        // Get next collection
-        final nextCollection = pickupService.getNextCollection(serviceArea);
-
-        if (nextCollection == null) {
-          return const SizedBox.shrink();
-        }
-
-        final collectionDate = nextCollection['date'] as DateTime;
-        final now = DateTime.now();
-
-        // Calculate daysUntil based on standard calendar dates (ignoring time)
-        // so that 'tomorrow' always shows as 1 day instead of 0 days.
-        final today = DateTime(now.year, now.month, now.day);
-        final targetDate = DateTime(
-            collectionDate.year, collectionDate.month, collectionDate.day);
-        final daysUntil = targetDate.difference(today).inDays;
-        final isRescheduled = nextCollection['isRescheduled'] ?? false;
-        final rescheduledReason = nextCollection['rescheduledReason'] ?? '';
-
-        final String area = (nextCollection['address'] ?? '').toString();
-        String wasteType =
-            (nextCollection['type'] ?? 'Eco Collection').toString();
-        if (area.isNotEmpty && area.toLowerCase() != 'unknown area') {
-          final capArea =
-              area[0].toUpperCase() + area.substring(1).toLowerCase();
-          if (!wasteType.toLowerCase().contains(area.toLowerCase())) {
-            wasteType = '$capArea $wasteType';
-          }
-        }
-
-        return AppAnimations.fadeInSlideUp(
-          duration: AppAnimations.normal,
-          offset: 20,
-          child: ModernCard(
-            gradient: isRescheduled
-                ? [AppTheme.accentOrange, const Color(0xFFFF6B6B)]
-                : [AppTheme.primaryGreen, AppTheme.lightGreen],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        isRescheduled
-                            ? Icons.schedule_outlined
-                            : Icons.notifications_active_rounded,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  isRescheduled
-                                      ? context.tr('collection_rescheduled')
-                                      : context.tr('upcoming_collection'),
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (isRescheduled)
-                                Container(
-                                  margin: const EdgeInsets.only(left: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Text(
-                                    'RESCHEDULED',
-                                    style: TextStyle(
-                                      color: AppTheme.accentOrange,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            wasteType,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.white.withOpacity(0.9),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Divider(color: Colors.white.withOpacity(0.3)),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr('date'),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDate(collectionDate),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.tr('time'),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            nextCollection['time'] ?? '08:00',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    AppAnimations.pulse(
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              daysUntil == 0
-                                  ? (collectionDate.isBefore(now)
-                                      ? 'NOW'
-                                      : 'TODAY')
-                                  : '$daysUntil',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: (daysUntil == 0) ? 14 : 24,
-                              ),
-                            ),
-                            if (daysUntil != 0)
-                              Text(
-                                daysUntil == 1
-                                    ? context.tr('day')
-                                    : context.tr('days'),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
-                                  fontSize: 10,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (isRescheduled && rescheduledReason.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.info_outline,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${context.tr('reason')}: $rescheduledReason',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 }
 
@@ -859,6 +864,8 @@ class _NotificationsPageState extends State<_NotificationsPage> {
                         ),
                       ),
                       SizedBox(height: responsive.spacing(12)),
+
+                      // --- QUICK DEBUG BUTTON REMOVED ---
 
                       if (allNotifications.isEmpty)
                         _buildEmptyAlertsState(context, responsive)

@@ -64,11 +64,12 @@ class _SplashScreenState extends State<SplashScreen>
       if (auth.isAuthCheckComplete) {
         if (auth.isAuthenticated) {
           if (auth.hasBarangaySelected) {
+            // Auto-jump disabled per user request to allow choosing on splash screen
             if (kDebugMode) {
-              print('🚀 FLASH: Resident profile found, auto-jumping to Dashboard.');
+              print('🚀 FLASH: Resident profile found, but staying on Splash for choices.');
             }
-            _isNavigating = true;
-            auth.goHome(context);
+            // _isNavigating = true;
+            // auth.goHome(context);
           } else {
             if (kDebugMode) {
               print('🚀 FLASH: Resident authenticated but no location selected. Staying on Splash.');

@@ -127,10 +127,6 @@ class _UltraSafeBootState extends State<UltraSafeBoot> {
                   ),
                   const SizedBox(height: 32),
                   if (_errorMessage == null) ...[
-                    const CircularProgressIndicator(
-                      color: Colors.white,
-                    ),
-                    const SizedBox(height: 24),
                     const Text(
                       'EcoSched Booting...',
                       style: TextStyle(

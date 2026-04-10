@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_service.dart';
 import 'pickup_service.dart';
@@ -20,6 +22,8 @@ class ReminderService extends ChangeNotifier {
   String? _activeUserId;
 
   final Set<String> _sentReminderKeys = {};
+  final List<Map<String, dynamic>> _offlineQueue = [];
+  bool _isSyncing = false;
   StreamSubscription<List<Map<String, dynamic>>>? _notificationSubscription;
 
   List<Map<String, dynamic>> get reminders => List.unmodifiable(_reminders);
@@ -82,7 +86,7 @@ class ReminderService extends ChangeNotifier {
     _pickupService = pickupService;
 
     final dynamic serviceAreaValue = authService.user?['serviceArea'];
-    final serviceArea = serviceAreaValue?.toString().trim();
+    final serviceArea = serviceAreaValue?.toString().trim().toLowerCase();
     if (serviceArea == null || serviceArea.isEmpty) {
       _currentServiceArea = null;
       _cancelNotificationSubscription();
@@ -114,17 +118,84 @@ class ReminderService extends ChangeNotifier {
   }
 
   void initialize() {
-    if (kDebugMode) print('🛠️ ReminderService: Initializing timer...');
-    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
-    // _reminderCheckTimer = Timer.periodic(
-    //   const Duration(hours: 1),
-    //   (_) => _checkUpcomingCollections(),
-    // );
+    _loadOfflineQueue();
+    _reminderCheckTimer = Timer.periodic(
+      const Duration(minutes: 15),
+      (_) {
+        _checkUpcomingCollections();
+        _syncOfflineQueue();
+      },
+    );
 
     if (kDebugMode) print('🛠️ ReminderService: Timer started');
 
-    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
-    // scheduleMicrotask(_checkUpcomingCollections);
+    scheduleMicrotask(() {
+      _checkUpcomingCollections();
+      _syncOfflineQueue();
+    });
+  }
+
+  Future<void> _loadOfflineQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? json = prefs.getString('ecosched_offline_reminders');
+      if (json != null) {
+        final List<dynamic> decoded = jsonDecode(json);
+        _offlineQueue.clear();
+        _offlineQueue.addAll(decoded.cast<Map<String, dynamic>>());
+        if (kDebugMode)
+          print('📂 Loaded ${_offlineQueue.length} pending offline reminders');
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ Error loading offline queue: $e');
+    }
+  }
+
+  Future<void> _saveOfflineQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'ecosched_offline_reminders', jsonEncode(_offlineQueue));
+    } catch (e) {
+      if (kDebugMode) print('❌ Error saving offline queue: $e');
+    }
+  }
+
+  Future<void> _syncOfflineQueue() async {
+    if (_isSyncing || _offlineQueue.isEmpty) return;
+    _isSyncing = true;
+
+    if (kDebugMode)
+      print('🔄 Syncing ${_offlineQueue.length} offline reminders...');
+
+    final List<Map<String, dynamic>> toRemove = [];
+
+    try {
+      for (final reminder in List.from(_offlineQueue)) {
+        try {
+          await _supabase
+              .from(SupabaseConfig.notificationsTable)
+              .insert(reminder);
+          toRemove.add(reminder);
+          if (kDebugMode) print('✅ Synced offline reminder: ${reminder['title']}');
+        } catch (e) {
+          // If it's a constraint error (already exists), remove it anyway
+          if (e.toString().contains('duplicate key')) {
+             toRemove.add(reminder);
+          } else {
+             if (kDebugMode) print('⚠️ Sync failed for one item, will retry later: $e');
+             break; // Stop sync if network is likely still down
+          }
+        }
+      }
+
+      if (toRemove.isNotEmpty) {
+        _offlineQueue.removeWhere((item) => toRemove.contains(item));
+        await _saveOfflineQueue();
+      }
+    } finally {
+      _isSyncing = false;
+    }
   }
 
   void _cancelNotificationSubscription() {
@@ -251,17 +322,29 @@ class ReminderService extends ChangeNotifier {
             final id = doc['id'];
             final createdAt = _parseTimestamp(doc['created_at']);
 
-            // Only alert for TRULY new notifications (within last 60 seconds)
+            // Only alert for notifications within 5 minutes (handles clock drift between Supabase and Phone)
             final bool isRecent =
-                DateTime.now().difference(createdAt).inSeconds < 60;
+                DateTime.now().difference(createdAt).inSeconds.abs() < 300;
 
-            if (!_reminders.any((r) => r['id'] == id)) {
+            final String rawTitle = doc['title']?.toString() ?? 'Notification';
+            final String rawMessage = doc['message']?.toString() ?? '';
+            
+            // Content deduplication check
+            final dateKey = "${createdAt.year}-${createdAt.month}-${createdAt.day}";
+            final bool contentExists = _reminders.any((r) {
+               final rCreatedAt = r['createdAt'] as DateTime;
+               final rDateKey = "${rCreatedAt.year}-${rCreatedAt.month}-${rCreatedAt.day}";
+               // Compare against bilingual versions or raw versions
+               return r['title'] == Translations.getBilingualText(rawTitle) && 
+                      r['message'] == Translations.getBilingualText(rawMessage) && 
+                      rDateKey == dateKey;
+            });
+
+            if (!_reminders.any((r) => r['id'] == id) && !contentExists) {
               _reminders.insert(0, {
                 'id': id,
-                'title': Translations.getBilingualText(
-                    doc['title']?.toString() ?? 'Notification'),
-                'message': Translations.getBilingualText(
-                    doc['message']?.toString() ?? ''),
+                'title': Translations.getBilingualText(rawTitle),
+                'message': Translations.getBilingualText(rawMessage),
                 'type': doc['type']?.toString() ?? 'info',
                 'read': doc['is_read'] == true,
                 'createdAt': createdAt,
@@ -298,13 +381,25 @@ class ReminderService extends ChangeNotifier {
             final doc = payload.newRecord;
             if (doc.isNotEmpty) {
               final id = doc['id'];
-              if (!_reminders.any((r) => r['id'] == id)) {
+              final createdAt = _parseTimestamp(doc['created_at']);
+              final String rawTitle = doc['title']?.toString() ?? 'Barangay Alert';
+              final String rawMessage = doc['message']?.toString() ?? '';
+
+              // Content deduplication check
+              final dateKey = "${createdAt.year}-${createdAt.month}-${createdAt.day}";
+              final bool contentExists = _reminders.any((r) {
+                 final rCreatedAt = r['createdAt'] as DateTime;
+                 final rDateKey = "${rCreatedAt.year}-${rCreatedAt.month}-${rCreatedAt.day}";
+                 return r['title'] == Translations.getBilingualText(rawTitle) && 
+                        r['message'] == Translations.getBilingualText(rawMessage) && 
+                        rDateKey == dateKey;
+              });
+
+              if (!_reminders.any((r) => r['id'] == id) && !contentExists) {
                 _reminders.insert(0, {
                   'id': id,
-                  'title': Translations.getBilingualText(
-                      doc['title']?.toString() ?? 'Barangay Alert'),
-                  'message': Translations.getBilingualText(
-                      doc['message']?.toString() ?? ''),
+                  'title': Translations.getBilingualText(rawTitle),
+                  'message': Translations.getBilingualText(rawMessage),
                   'type': doc['type']?.toString() ?? 'alert',
                   'read': doc['is_read'] == true,
                   'createdAt': _parseTimestamp(doc['created_at']),
@@ -314,12 +409,9 @@ class ReminderService extends ChangeNotifier {
                     .compareTo(a['createdAt'] as DateTime));
                 notifyListeners();
 
-                // Show local notification
-                NotificationService.showNotification(
-                  id: id.hashCode & 0x7FFFFFFF,
-                  title: doc['title'] ?? 'New Alert',
-                  body: doc['message'] ?? 'You have a new notification',
-                );
+                // ✅ In-app feed updated. Push notification is handled
+                // centrally by NotificationService's realtime listener.
+                // Do NOT call showNotification() here to avoid duplicates.
               }
             }
           },
@@ -340,17 +432,25 @@ class ReminderService extends ChangeNotifier {
                 final targetAudience = newRecord['target_audience'] as String?;
                 if (targetAudience == 'all' || targetAudience == serviceArea) {
                   final id = newRecord['id'];
-                  final exists = _reminders.any((r) => r['id'] == id);
+                  final createdAt = _parseTimestamp(newRecord['created_at']);
+                  final String rawTitle = newRecord['title']?.toString() ?? 'Announcement';
+                  final String rawMessage = (newRecord['content'] ?? newRecord['message'])?.toString() ?? '';
 
-                  if (!exists) {
+                  // Content deduplication check
+                  final dateKey = "${createdAt.year}-${createdAt.month}-${createdAt.day}";
+                  final bool contentExists = _reminders.any((r) {
+                     final rCreatedAt = r['createdAt'] as DateTime;
+                     final rDateKey = "${rCreatedAt.year}-${rCreatedAt.month}-${rCreatedAt.day}";
+                     return r['title'] == Translations.getBilingualText(rawTitle) && 
+                            r['message'] == Translations.getBilingualText(rawMessage) && 
+                            rDateKey == dateKey;
+                  });
+
+                  if (!_reminders.any((r) => r['id'] == id) && !contentExists) {
                     _reminders.insert(0, {
                       'id': id,
-                      'title': Translations.getBilingualText(
-                          newRecord['title']?.toString() ?? 'Announcement'),
-                      'message': Translations.getBilingualText(
-                          (newRecord['content'] ?? newRecord['message'])
-                                  ?.toString() ??
-                              ''),
+                      'title': Translations.getBilingualText(rawTitle),
+                      'message': Translations.getBilingualText(rawMessage),
                       'type': 'announcement',
                       'read': false,
                       'createdAt': _parseTimestamp(newRecord['created_at']),
@@ -381,46 +481,68 @@ class ReminderService extends ChangeNotifier {
       print('🛠️ ReminderService: _checkUpcomingCollections called');
     }
     final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final inTwoHours = now.add(const Duration(hours: 2));
 
     final pickupService = _pickupService;
     final serviceArea = _currentServiceArea;
     if (pickupService == null || serviceArea == null || serviceArea.isEmpty) {
-      if (kDebugMode) {
-        print('🛠️ ReminderService: Missing dependencies or service area');
-        print('   - PickupService null: ${pickupService == null}');
-        print('   - Service Area: $serviceArea');
-      }
       return;
     }
 
-    // Check for tomorrow's collections
-    final tomorrowPickups = pickupService.pickupsForDate(tomorrow);
-    for (final pickup in tomorrowPickups) {
-      await _processPickupReminder(
-        pickup: pickup,
-        serviceArea: serviceArea,
-        title: '🗓️ Collection Tomorrow!',
-        typeKey: 'tomorrow',
-      );
-    }
-
-    // Check for collections in the next 2 hours
     final allPickups = pickupService.scheduledPickups;
-    final soonPickups = allPickups.where((p) {
-      final date = p['date'] as DateTime?;
-      return date != null && date.isAfter(now) && date.isBefore(inTwoHours);
-    }).toList();
 
-    for (final pickup in soonPickups) {
+    // Check for tomorrow's collection at 18:00 (6:00 PM) → 📅 Collection Tomorrow
+    if (now.hour == 18 && now.minute >= 0 && now.minute <= 3) {
+      final tomorrowPickups = allPickups.where((p) {
+        final date = p['date'] as DateTime?;
+        if (date == null) return false;
+        final tomorrow = now.add(const Duration(days: 1));
+        return date.year == tomorrow.year &&
+            date.month == tomorrow.month &&
+            date.day == tomorrow.day;
+      }).toList();
+      for (final pickup in tomorrowPickups) {
+        await _processPickupReminder(
+          pickup: pickup,
+          serviceArea: serviceArea,
+          title: '📅 Collection Tomorrow',
+          typeKey: 'day_before',
+        );
+      }
+    }
+
+    // Check for collections in ~1 hour → 🛣️ Put garbage out
+    final oneHourPickups = allPickups.where((p) {
+      final date = p['date'] as DateTime?;
+      return date != null &&
+          date.isAfter(now.add(const Duration(minutes: 45))) &&
+          date.isBefore(now.add(const Duration(minutes: 75)));
+    }).toList();
+    for (final pickup in oneHourPickups) {
       await _processPickupReminder(
         pickup: pickup,
         serviceArea: serviceArea,
-        title: '🚛 Truck Coming Soon!',
-        typeKey: 'soon',
+        title: '🛣️ Put your garbage in designated area',
+        typeKey: '1hr',
       );
     }
+
+    // Check for collections happening right now (within next 2 min) → ⏰ Collection Time
+    final nowPickups = allPickups.where((p) {
+      final date = p['date'] as DateTime?;
+      return date != null &&
+          date.isAfter(now.subtract(const Duration(minutes: 1))) &&
+          date.isBefore(now.add(const Duration(minutes: 2)));
+    }).toList();
+    for (final pickup in nowPickups) {
+      await _processPickupReminder(
+        pickup: pickup,
+        serviceArea: serviceArea,
+        title: '⏰ Collection Time',
+        typeKey: 'now',
+      );
+    }
+
   }
 
   Future<void> _processPickupReminder({
@@ -434,7 +556,11 @@ class ReminderService extends ChangeNotifier {
     if (date == null) return;
 
     final String name = (pickup['type'] ?? 'Eco Collection').toString();
-    final String time = (pickup['time'] ?? '08:00').toString();
+    final String time = _formatTime((pickup['time'] ?? '08:00').toString());
+    final String body =
+        'Get ready! $name is set for ${_formatDate(date)} at $time.';
+    final String bodyBilingual =
+        '$body\n(Andama ang inyong basura! Ang koleksyon sa $name naka-iskedyul sa ${_formatDate(date)} alas $time.)';
 
     final key =
         '${serviceArea.toLowerCase()}|${date.toIso8601String()}|$name|$typeKey';
@@ -443,46 +569,53 @@ class ReminderService extends ChangeNotifier {
     }
     _sentReminderKeys.add(key);
 
-    // Generate notification content
-    final String title = typeKey == 'soon'
-        ? '🚛 Truck Coming Soon!'
-        : '🗓️ Collection Tomorrow!';
-    final String body =
-        'Get ready! $name is set for ${_formatDate(date)} at $time.';
-
-    // Show local push notification
-    if (typeKey == 'soon' || typeKey == 'tomorrow') {
-      await NotificationService.showNotification(
-        id: (date.millisecondsSinceEpoch ~/ 1000) & 0x7FFFFFFF,
-        title: Translations.getBilingualText(title),
-        body: Translations.getBilingualText(body),
-      );
-    }
+    // Push notification is handled by the OS alarm scheduled in PickupService.
+    // We only insert into Supabase here so it shows on the in-app Alerts screen.
 
     // Insert into Supabase so it shows up on the Alert Screen
     try {
       final userId = _activeUserId;
       if (userId != null) {
-        // Check if a similar notification already exists to prevent spam
-        final existing = _reminders.any((r) =>
-            r['title'] == title &&
-            r['message'] == body &&
-            r['type'] == 'reminder');
+        final Map<String, dynamic> reminderData = {
+          'user_id': userId,
+          'title': Translations.getBilingualText(title),
+          'message': bodyBilingual,
+          'type': 'reminder',
+          'status': 'unread',
+          'created_at': DateTime.now().toIso8601String(),
+          'barangay': serviceArea,
+        };
 
-        if (!existing) {
-          await _supabase.from(SupabaseConfig.notificationsTable).insert({
-            'user_id': userId,
-            'title': title,
-            'message': body,
-            'type': 'reminder',
-            'priority': typeKey == 'soon' ? 'high' : 'medium',
-            'is_read': false,
-            'barangay': serviceArea,
-          });
+        // Add to local feed immediately with temporary ID
+        _reminders.insert(0, {
+          'id': 'local_${DateTime.now().millisecondsSinceEpoch}',
+          'title': Translations.getBilingualText(title),
+          'message': bodyBilingual,
+          'type': 'reminder',
+          'read': false,
+          'createdAt': DateTime.now(),
+        });
+        notifyListeners();
+
+        try {
+          await _supabase
+              .from(SupabaseConfig.notificationsTable)
+              .insert(reminderData);
+          if (kDebugMode) {
+            print(
+                '✅ [Database] Reminder Sync Success: "$title" for $serviceArea');
+          }
+        } catch (dbErr) {
+          if (kDebugMode) {
+            print('⚠️ [Database] Connection Issue - Queuing for offline sync: $dbErr');
+          }
+          // --- OFFLINE SYNC LOGIC ---
+          _offlineQueue.add(reminderData);
+          await _saveOfflineQueue();
         }
       }
     } catch (e) {
-      if (kDebugMode) print('❌ Error inserting automated reminder: $e');
+      if (kDebugMode) print('❌ Error processing automated reminder: $e');
     }
   }
 
@@ -503,6 +636,31 @@ class ReminderService extends ChangeNotifier {
       'Dec'
     ];
     return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} ${date.day}';
+  }
+
+  /// Converts a raw time string (e.g. '08:00:00' or '08:00') or date to 12-hour AM/PM format.
+  String _formatTime(dynamic rawTime) {
+    if (rawTime is DateTime) {
+      return DateFormat('h:mm a').format(rawTime);
+    }
+    
+    final timeStr = rawTime.toString();
+    try {
+      // If it's a full ISO string
+      if (timeStr.contains('T') || timeStr.contains('-')) {
+        return DateFormat('h:mm a').format(DateTime.parse(timeStr));
+      }
+      
+      // If it's just HH:mm:ss
+      final parts = timeStr.split(':');
+      final hour = int.tryParse(parts.isNotEmpty ? parts[0] : '8') ?? 8;
+      final minute = int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0;
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+      return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
+    } catch (e) {
+      return timeStr;
+    }
   }
 
   /// DEBUG: Trigger a test notification immediately

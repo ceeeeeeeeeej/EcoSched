@@ -310,7 +310,7 @@ async function handleUpdateSchedule(event) {
     const form = event.target;
     const formData = new FormData(form);
 
-    const scheduleName = formData.get('scheduleName')?.trim();
+    const scheduleName = formData.get('scheduleName')?.trim() || '';
     const area = formData.get('area');
     const frequency = formData.get('frequency');
     const startDate = formData.get('startDate');
@@ -318,76 +318,89 @@ async function handleUpdateSchedule(event) {
     const description = formData.get('description')?.trim() || '';
     const residentName = formData.get('residentName')?.trim() || '';
     const pickupLocation = formData.get('pickupLocation')?.trim() || '';
-    const isReschedule = (formData.get('isReschedule') || 'false') === 'true';
-    const originalDateValue = formData.get('originalDate')?.toString().trim() || '';
-    const originalTimeValue = formData.get('originalTime')?.toString().trim() || '';
+    
+    // Check if we are updating a FIXED schedule or a MANUAL one
+    const isFixedUpdate = (frequency === 'weekly');
 
-    if (!scheduleName || !area || !frequency || !startDate || !startTime) {
+    if (!area || !frequency || (!isFixedUpdate && !startTime)) {
         showNotification('Please fill in all required fields', 'error');
         return;
     }
 
-    const scheduledDate = new Date(`${startDate}T${startTime}`);
-    if (isNaN(scheduledDate)) {
-        showNotification('Please provide a valid date and time', 'error');
-        return;
-    }
-
-    // User is already authenticated in dashboard - get user ID for tracking
+    // User is already authenticated in dashboard 
     const { data: { user } } = await supabase.auth.getUser();
 
-    const existing = schedules.find(s => s.id === editingScheduleId) || {};
-
-    const updates = {
-        name: scheduleName,
-        area,
-        serviceArea: area,
-        frequency,
-        description,
-        residentName,
-        pickupLocation,
-        scheduledDate,
-        startDate,
-        startTime,
-        status: existing.status || 'scheduled',
-        updatedBy: user?.id || 'unknown'
-    };
-
-    if (existing.isRescheduled) {
-        updates.isRescheduled = true;
-        updates.originalDate = existing.originalDate || null;
-        updates.rescheduledReason = description || existing.rescheduledReason || '';
-        updates.frequency = 'one-time';
-    }
-
     try {
-        if (dbService && dbService.updateCollectionSchedule) {
-            console.log(' Updating schedule:', editingScheduleId, updates);
+        if (isFixedUpdate) {
+            const days = Array.from(form.querySelectorAll('input[name="days"]:checked')).map(cb => cb.value);
+            if (days.length === 0) {
+                showNotification('Please select at least one collection day', 'error');
+                return;
+            }
+
+            const areaPayload = {
+                area: area,
+                scheduleName: scheduleName || 'Eco Collection',
+                days: days,
+                time: startTime + ':00', // Ensure HH:MM:SS
+                isActive: true
+            };
+
+            console.log(' Updating master area schedule:', editingScheduleId, areaPayload);
+            const { error } = await dbService.updateAreaSchedule(editingScheduleId, areaPayload);
+            if (error) throw error;
+
+            showNotification('Master schedule updated successfully!', 'success');
+            loadFixedSchedules(); // Refresh fixed schedules list
+            
+            //  Notify residents of the updated master schedule
+            notifyUsersOfScheduleAction(areaPayload, 'fixed');
+
+        } else {
+            // Manual / Special Collection Update
+            const scheduledDate = new Date(`${startDate}T${startTime}`);
+            if (isNaN(scheduledDate.getTime())) {
+                showNotification('Invalid date or time', 'error');
+                return;
+            }
+
+            const updates = {
+                name: scheduleName || 'Eco Collection',
+                area,
+                serviceArea: area,
+                frequency,
+                description,
+                residentName,
+                pickupLocation,
+                scheduledDate,
+                startDate,
+                startTime,
+                updatedBy: user?.id || 'unknown'
+            };
+
+            console.log(' Updating manual schedule:', editingScheduleId, updates);
             const { error } = await dbService.updateCollectionSchedule(editingScheduleId, updates);
             if (error) throw error;
-        }
 
-        const index = schedules.findIndex(s => s.id === editingScheduleId);
-        if (index !== -1) {
-            schedules[index] = normalizeSchedule({ id: editingScheduleId, ...updates });
+            const index = schedules.findIndex(s => s.id === editingScheduleId);
+            if (index !== -1) {
+                schedules[index] = normalizeSchedule({ ...schedules[index], ...updates });
+            }
+
+            showNotification('Schedule updated successfully!', 'success');
+            
+            // Notify residents
+            notifyUsersOfScheduleAction({ id: editingScheduleId, ...updates }, 'creation');
         }
 
         renderScheduleList();
         renderCalendar();
-
-        showNotification('Schedule updated successfully!', 'success');
-
-        if (updates.isRescheduled) {
-            notifyUsersOfReschedule({ ...existing, ...updates }, 'reschedule');
-        }
-
         editingScheduleId = null;
         form.reset();
         closeAddScheduleModal();
     } catch (error) {
         console.error('Error updating schedule:', error);
-        const message = utils?.getErrorMessage?.(error) || 'Failed to update schedule. Please try again.';
-        showNotification(message, 'error');
+        showNotification('Failed to update schedule: ' + (error.message || 'Unknown error'), 'error');
     }
 }
 
@@ -851,10 +864,7 @@ function attachScheduleEventListeners(container) {
         });
     });
 
-    const deleteButtons = container.querySelectorAll('.delete-schedule-btn');
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', confirmDeleteSchedule);
-    });
+    // Removed delete buttons to support deletion-free workflow
 
     const rescheduleButtons = container.querySelectorAll('.btn-reschedule');
     rescheduleButtons.forEach(button => {
@@ -896,17 +906,25 @@ function createScheduleCard(schedule) {
 
     const cardId = isFixed ? schedule.originalFixedId : schedule.id;
 
-    const rescheduleBtnHTML = `
+    const editBtnHTML = `
+        <button type="button" class="btn-icon edit-schedule-btn" 
+            data-id="${cardId}" 
+            title="Edit Master Schedule">
+            <i class="fas fa-edit"></i>
+        </button>
+    `;
+
+    const rescheduleBtnHTML = isFixed ? `
         <button type="button" class="btn-icon btn-reschedule" 
             data-area="${schedule.area}" 
             data-date="${formatDateInput(schedule.scheduledDate)}" 
             data-time="${schedule.fixedTime || schedule.startTime || '08:00'}" 
             data-name="${schedule.name}"
             data-residentid="${schedule.residentId || ''}"
-            title="Edit / Reschedule">
-            <i class="fas fa-edit"></i>
+            title="One-time Reschedule">
+            <i class="fas fa-calendar-alt" style="color: #6366f1;"></i>
         </button>
-    `;
+    ` : '';
 
     return `
         <div class="schedule-card modern-card" data-area="${schedule.area || ''}">
@@ -993,10 +1011,8 @@ function createScheduleCard(schedule) {
             </div>
             
             <div class="card-actions">
+                ${editBtnHTML}
                 ${rescheduleBtnHTML}
-                <button type="button" class="btn-icon delete-schedule-btn" data-id="${schedule.id}" data-isfixed="${isFixed}" data-originalfixedid="${schedule.originalFixedId}" title="Delete Schedule">
-                    <i class="fas fa-trash"></i>
-                </button>
             </div>
         </div>
     `;
@@ -1340,7 +1356,10 @@ function toggleFrequencyUI() {
 }
 
 function openEditScheduleModal(scheduleId) {
-    const schedule = schedules.find(s => s.id === scheduleId);
+    // Search both one-time and fixed schedules
+    const schedule = schedules.find(s => s.id === scheduleId) || 
+                   fixedSchedules.find(s => s.id === scheduleId);
+                   
     const modal = document.getElementById('addScheduleModal');
     if (!schedule || !modal) return;
 
@@ -1350,23 +1369,40 @@ function openEditScheduleModal(scheduleId) {
     const form = modal.querySelector('form');
     if (!form) return;
 
-    form.area.value = schedule.area || '';
-    form.frequency.value = schedule.frequency || '';
-    form.startDate.value = schedule.startDate || formatDateInput(schedule.scheduledDate);
-    form.startTime.value = schedule.startTime || formatTimeInput(schedule.scheduledDate);
+    form.area.value = schedule.area || schedule.serviceArea || '';
+    
+    // Normalize frequency
+    const freq = schedule.frequency || (schedule.days ? 'weekly' : 'one-time');
+    form.frequency.value = freq;
+    
+    // Populate start date/time
+    form.startDate.value = schedule.startDate || (schedule.scheduledDate ? formatDateInput(schedule.scheduledDate) : '');
+    form.startTime.value = schedule.startTime || (schedule.scheduledDate ? formatTimeInput(schedule.scheduledDate) : '');
+
+    // Handle Recurring Days
+    if (schedule.days && Array.isArray(schedule.days)) {
+        form.querySelectorAll('input[name="days"]').forEach(cb => {
+            cb.checked = schedule.days.includes(cb.value);
+        });
+    }
 
     if (form.isReschedule) {
         form.isReschedule.value = schedule.isRescheduled ? 'true' : 'false';
     }
+    
+    const resolveOriginalDate = (s) => {
+        if (s.originalDate instanceof Date) return s.originalDate;
+        if (typeof s.originalDate === 'string') return new Date(s.originalDate);
+        return null;
+    };
+    
+    const origDate = resolveOriginalDate(schedule);
+    
     if (form.originalDate) {
-        form.originalDate.value = schedule.originalDate instanceof Date
-            ? formatDateInput(schedule.originalDate)
-            : '';
+        form.originalDate.value = origDate ? formatDateInput(origDate) : '';
     }
     if (form.originalTime) {
-        form.originalTime.value = schedule.originalDate instanceof Date
-            ? formatTimeInput(schedule.originalDate)
-            : '';
+        form.originalTime.value = origDate ? formatTimeInput(origDate) : '';
     }
 
     if (form.residentName) form.residentName.value = schedule.residentName || '';
@@ -1560,19 +1596,28 @@ async function notifyUsersOfScheduleAction(schedule, type) {
         if (type === 'reschedule') {
             const dateObj = new Date(schedule.scheduledDate);
             const dateStr = dateObj.toLocaleDateString();
-            const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const timeStr = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
             const area = capitalize(schedule.area);
             message = `Your collection for ${area} is now on ${dateStr} at ${timeStr}.${schedule.rescheduledReason ? ` Reason: ${schedule.rescheduledReason}` : ''} \n\n Ang imong pagkolekta sa ${area} gibalhin sa ${dateStr}, ${timeStr}.${schedule.rescheduledReason ? ` Rason: ${schedule.rescheduledReason}` : ''}`;
         } else if (type === 'creation') {
             const dateObj = new Date(schedule.scheduledDate);
             const dateStr = dateObj.toLocaleDateString();
-            const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const timeStr = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
             const area = capitalize(schedule.area);
             title = ' New Collection Scheduled | Bag-ong Eskedyul';
             message = `A new collection has been scheduled for ${area} on ${dateStr} at ${timeStr}. \n\n Adunay bag-ong pagkolekta sa ${area} sa ${dateStr}, ${timeStr}.`;
         } else if (type === 'fixed') {
             const daysStr = Array.isArray(schedule.days) ? schedule.days.map(d => capitalize(d.slice(0, 3))).join(', ') : 'weekly';
-            const timeStr = schedule.time ? schedule.time.slice(0, 5) : 'Scheduled';
+            
+            // Format time from HH:MM:SS to AM/PM
+            let timeStr = 'Scheduled';
+            if (schedule.time) {
+                const [h, m] = schedule.time.split(':');
+                const hour = parseInt(h);
+                const ampm = hour >= 12 ? 'PM' : 'AM';
+                const displayHour = hour % 12 || 12;
+                timeStr = `${displayHour}:${m} ${ampm}`;
+            }
             const area = capitalize(schedule.area);
             title = ' New Regular Schedule | Bag-ong Eskedyul';
             message = `A new weekly collection has been set for ${area}: Every ${daysStr} at ${timeStr}. \n\n Adunay bag-ong semana nga pagkolekta sa ${area}: Matag ${daysStr}, ${timeStr}.`;

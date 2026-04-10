@@ -65,16 +65,6 @@
                         <button class="btn-filter" onclick="setCollectionFilter('regular')" data-filter="regular">Regular</button>
                         <button class="btn-filter" onclick="setCollectionFilter('special')" data-filter="special">Special</button>
                     </div>
-                    <div class="view-toggle">
-                        <button class="btn btn-outline active" onclick="toggleView('list')">
-                            <i class="fas fa-list"></i>
-                            List
-                        </button>
-                        <button class="btn btn-outline" onclick="toggleView('grid')">
-                            <i class="fas fa-th"></i>
-                            Grid
-                        </button>
-                    </div>
                 </div>
             </div>
             <div class="schedule-list" id="scheduleList">
@@ -98,7 +88,7 @@
                 <input type="hidden" id="originalTime" name="originalTime" value="">
                 <input type="hidden" id="residentId" name="residentId" value="">
                 <div class="form-row">
-                    <div class="form-group">
+                    <div class="form-group" style="flex: 1;">
                         <label for="area">Barangay</label>
                         <input type="text" id="area" name="area" list="barangayList"
                             placeholder="Enter or select barangay" required>
@@ -114,48 +104,39 @@
                         </datalist>
                     </div>
                     <div class="form-group">
-                        <label for="frequency">Frequency</label>
-                        <select id="frequency" name="frequency" required onchange="toggleFrequencyUI()">
-                            <option value="weekly">Weekly Recurring</option>
-                            <option value="one-time">One-time Event</option>
-                        </select>
+                        <label for="startTime">Start Time</label>
+                        <input type="time" id="startTime" name="startTime" required>
                     </div>
+                </div>
+
+                <div class="form-group" style="display: none;">
+                    <label for="frequency">Frequency</label>
+                    <select id="frequency" name="frequency" required onchange="toggleFrequencyUI()" style="display: none;">
+                        <option value="weekly">Weekly Recurring</option>
+                        <option value="one-time">One-time Event</option>
+                    </select>
                 </div>
 
                 <!-- Recurring Days Selection -->
                 <div id="recurringDaysContainer" class="form-group">
                     <label>Collection Days</label>
                     <div class="checkbox-group"
-                        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px;">
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="monday"> Mon</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="tuesday"> Tue</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="wednesday"> Wed</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="thursday"> Thu</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="friday"> Fri</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="saturday"> Sat</label>
-                        <label class="checkbox-item"><input type="checkbox" name="days" value="sunday"> Sun</label>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="startDate">Start Date</label>
-                        <input type="date" id="startDate" name="startDate" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="startTime">Start Time</label>
-                        <input type="time" id="startTime" name="startTime" required>
+                        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="monday" style="width: 16px; height: 16px; margin: 0;"> Mon</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="tuesday" style="width: 16px; height: 16px; margin: 0;"> Tue</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="wednesday" style="width: 16px; height: 16px; margin: 0;"> Wed</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="thursday" style="width: 16px; height: 16px; margin: 0;"> Thu</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="friday" style="width: 16px; height: 16px; margin: 0;"> Fri</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="saturday" style="width: 16px; height: 16px; margin: 0;"> Sat</label>
+                        <label class="checkbox-item" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; color: #4b5563;"><input type="checkbox" name="days" value="sunday" style="width: 16px; height: 16px; margin: 0;"> Sun</label>
                     </div>
                 </div>
 
-                <div class="form-group" id="residentInfoContainer">
-                    <label for="residentName">Resident Name (Optional)</label>
-                    <input type="text" id="residentNameField" name="residentName" placeholder="e.g. John Doe">
+                <div id="startDateRow" class="form-group" style="margin-top: 10px; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                    <label for="startDate">Reschedule Date</label>
+                    <input type="date" id="startDate" name="startDate" required style="margin-top: 8px;">
                 </div>
 
-                <div class="form-group" id="pickupLocationContainer">
-                    <label for="pickupLocation">Pickup Location (Optional)</label>
-                    <input type="text" id="pickupLocationField" name="pickupLocation" placeholder="e.g. Near the blue gate">
-                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeAddScheduleModal()">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="modalSubmitBtn">Confirm</button>
@@ -166,5 +147,4 @@
 
     <script type="module" src="../js/pages/schedules.js"></script>
 </body>
-
 </html>

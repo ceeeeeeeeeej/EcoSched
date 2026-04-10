@@ -1,6 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ecosched/core/services/notification_service.dart';
 import '../config/supabase_config.dart';
@@ -13,8 +12,10 @@ class PickupService extends ChangeNotifier {
   final Set<String> _notifiedOnTheWayIds = {};
   final Set<String> _notifiedRescheduledIds = {};
   final Set<String> _notifiedStartedZonesToday = {};
+  final Set<String> _processedScheduleIds = {}; // Track IDs to detect NEW assignments
   List<Map<String, dynamic>> _lastStreamedSchedules = [];
   bool _isLastCollector = false;
+  bool _remindersScheduled = false; // Flag to prevent duplicate scheduling in same cycle
 
   List<Map<String, dynamic>> get scheduledPickups =>
       List.unmodifiable(_scheduledPickups);
@@ -31,8 +32,6 @@ class PickupService extends ChangeNotifier {
     final normalized = _normalizeDate(date);
     return scheduledDates.contains(normalized);
   }
-
-
 
   /// Retrieves all pickups assigned on the provided day.
   List<Map<String, dynamic>> pickupsForDate(DateTime date) {
@@ -54,15 +53,23 @@ class PickupService extends ChangeNotifier {
 
   Map<String, dynamic>? getNextCollection(String serviceArea) {
     final now = DateTime.now();
+    final todayNormalized = _normalizeDate(now);
+
     final upcoming = _scheduledPickups.where((pickup) {
       final pickupArea = (pickup['address'] ?? '').toString().toLowerCase();
-      final targetArea = serviceArea.toLowerCase();
+      final String effectiveArea = serviceArea.toString().trim().toLowerCase();
       final pickupDate = pickup['date'] as DateTime;
+      final pickupDateNormalized = _normalizeDate(pickupDate);
 
-      // Match area AND ensure it's in the future
-      return (pickupArea.contains(targetArea) ||
-              targetArea.contains(pickupArea)) &&
-          pickupDate.isAfter(now);
+      // Match area
+      final bool areaMatch = pickupArea.contains(effectiveArea) ||
+          effectiveArea.contains(pickupArea);
+
+      // Include if it's strictly in the future OR if it's any time TODAY
+      final bool isFutureOrToday =
+          pickupDate.isAfter(now) || pickupDateNormalized == todayNormalized;
+
+      return areaMatch && isFutureOrToday;
     }).toList();
 
     if (upcoming.isEmpty) return null;
@@ -73,12 +80,11 @@ class PickupService extends ChangeNotifier {
   }
 
   StreamSubscription<List<Map<String, dynamic>>>? _scheduleSubscription;
-  StreamSubscription<List<Map<String, dynamic>>>? _fixedScheduleSubscription;
   String? _currentServiceArea;
 
   Future<void> loadSchedulesForServiceArea(String serviceArea,
       {bool isCollector = false, bool forceReload = false}) async {
-    final normalizedArea = serviceArea.trim();
+    final normalizedArea = serviceArea.trim().toLowerCase();
 
     if (!forceReload &&
         _currentServiceArea == normalizedArea &&
@@ -87,7 +93,6 @@ class PickupService extends ChangeNotifier {
     }
 
     await _scheduleSubscription?.cancel();
-    await _fixedScheduleSubscription?.cancel();
     // Only clear trackers if the barangay ACTUALLY changed
     if (_currentServiceArea != normalizedArea) {
       _notifiedOnTheWayIds.clear();
@@ -125,6 +130,15 @@ class PickupService extends ChangeNotifier {
             .map((doc) => _mapScheduleDoc(doc['id'].toString(), doc))
             .toList();
 
+        // [INSTANT ASSIGNMENT ALERT] Notify if a brand new schedule is detected
+        for (final schedule in _lastStreamedSchedules) {
+          final id = schedule['id'].toString();
+          if (!_processedScheduleIds.contains(id)) {
+            _processedScheduleIds.add(id);
+            _handleNewScheduleAlert(schedule);
+          }
+        }
+
         _rebuildScheduledPickups(isCollector: isCollector);
       },
       onError: (e) {
@@ -135,39 +149,76 @@ class PickupService extends ChangeNotifier {
     );
   }
 
-  Future<void> _loadFixedSchedules() async {
-    _fixedScheduleSubscription = _supabase
-        .from(SupabaseConfig.areaSchedulesTable)
-        .stream(primaryKey: ['id']).listen(
-      (data) {
-        for (final doc in data) {
-          final area = (doc['area'] ?? '').toString().toLowerCase();
-          if (area.isNotEmpty) {
-            final schedule = {
-              'id': doc['id'],
-              'area': doc['area'],
-              'scheduleName': doc['schedule_name'],
-              'days': doc['days'],
-              'time': doc['time'],
-              'active': doc['is_active'],
-            };
+  void _handleNewScheduleAlert(Map<String, dynamic> schedule) {
+    final area = (schedule['address'] ?? '').toString().toLowerCase();
+    final current = _currentServiceArea?.toLowerCase();
+    if (current == null || !area.contains(current)) return;
 
-            if (!_fixedSchedules.containsKey(area)) {
-              _fixedSchedules[area] = [];
-            }
-            _fixedSchedules[area]!.add(schedule);
-          }
-        }
-        _rebuildScheduledPickups(isCollector: _isLastCollector);
-      },
-      onError: (e) {
-        if (kDebugMode) {
-          print('Failed to load fixed schedules: $e');
-        }
-        // Even on error, rebuild to allow default/fallback schedules to show
-        _rebuildScheduledPickups();
-      },
+    // Only notify for literal scheduled items (not historical ones)
+    if (schedule['status']?.toString().toLowerCase() != 'scheduled') return;
+
+    final date = schedule['date'] as DateTime;
+    final formattedDate = DateFormat('EEEE, MMM d').format(date);
+    final formattedTime = DateFormat('h:mm a').format(date);
+
+    // Show instant notification
+    NotificationService.showNotification(
+      id: schedule['id'].hashCode & 0x7FFFFFFF,
+      title: 'New Collection Scheduled | Bag-ong Eskedyul',
+      body:
+          'A new collection has been set for $current on $formattedDate at $formattedTime. \n\n Adunay bag-ong pagkolekta sa $current.',
     );
+  }
+
+  Future<void> _loadFixedSchedules() async {
+    try {
+      if (kDebugMode) {
+        print(
+            '📡 PickupService: Attempting to fetch fixed schedules via SELECT...');
+      }
+
+      final data =
+          await _supabase.from(SupabaseConfig.areaSchedulesTable).select('*');
+
+      if (kDebugMode) {
+        print('📡 PickupService: Successfully connected to Supabase.');
+        print(
+            '📡 PickupService: Found ${data.length} total records in area_schedules table.');
+        if (data.isNotEmpty) {
+          print('📡 PickupService: Sample record from DB: ${data.first}');
+        }
+      }
+
+      _fixedSchedules.clear();
+      for (final doc in data) {
+        final area = (doc['area'] ?? '').toString().trim().toLowerCase();
+        if (kDebugMode) {
+          print(
+              '   - Fixed Schedule: ID=${doc['id']}, Area=$area, Active=${doc['is_active']}');
+        }
+        if (area.isNotEmpty) {
+          final schedule = {
+            'id': doc['id'],
+            'area': doc['area'],
+            'scheduleName': doc['schedule_name'] ?? doc['scheduleName'],
+            'days': doc['days'],
+            'time': doc['time'],
+            'active': doc['is_active'],
+          };
+
+          if (!_fixedSchedules.containsKey(area)) {
+            _fixedSchedules[area] = [];
+          }
+          _fixedSchedules[area]!.add(schedule);
+        }
+      }
+
+      _rebuildScheduledPickups(isCollector: _isLastCollector);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ PickupService: Error fetching fixed schedules: $e');
+      }
+    }
   }
 
   void _rebuildScheduledPickups({bool? isCollector}) {
@@ -177,7 +228,17 @@ class PickupService extends ChangeNotifier {
     final Map<String, Map<String, dynamic>> itemsMap = {};
 
     // 1. Add streamed schedules (highest priority)
+    final String currentArea = _currentServiceArea?.toLowerCase().trim() ?? '';
     for (final doc in _lastStreamedSchedules) {
+      // For residents, strictly filter to their own area
+      // For collectors, we keep all streamed items in the current zone stream
+      if (!_isLastCollector && currentArea.isNotEmpty) {
+        final String docArea = (doc['address'] ?? '').toString().toLowerCase().trim();
+        if (!docArea.contains(currentArea) && !currentArea.contains(docArea)) {
+          continue; // Skip this schedule as it belongs to another barangay
+        }
+      }
+      
       final id = doc['id']?.toString() ?? 'unknown';
       itemsMap[id] = doc;
     }
@@ -232,16 +293,42 @@ class PickupService extends ChangeNotifier {
     String serviceArea,
     Set<DateTime> excludedDates,
   ) {
-    final key = serviceArea.toLowerCase();
-    // Only use schedules from the database — no hardcoded fallbacks.
-    final List<Map<String, dynamic>> fixedList = _fixedSchedules[key] ?? [];
+    final searchKey = serviceArea.trim().toLowerCase();
 
-    if (fixedList.isEmpty) return [];
+    // Improved matching: find all fixed schedules that match the service area string
+    final List<Map<String, dynamic>> fixedList = [];
+    _fixedSchedules.forEach((areaKey, list) {
+      if (searchKey.contains(areaKey) || areaKey.contains(searchKey)) {
+        for (final s in list) {
+          // Add the areaKey to each item so we can use it for ID generation later
+          fixedList.add({...s, 'area_key': areaKey});
+        }
+      }
+    });
 
+    if (fixedList.isEmpty) {
+      if (kDebugMode) {
+        print(
+            '📡 PickupService: No fixed schedules found in memory for search key: "$searchKey"');
+        print(
+            '📡 PickupService: Current keys in memory: ${_fixedSchedules.keys.toList()}');
+      }
+      return [];
+    }
+
+    return _generateSchedulesFromList(fixedList, excludedDates, searchKey);
+  }
+
+  List<Map<String, dynamic>> _generateSchedulesFromList(
+    List<Map<String, dynamic>> fixedList,
+    Set<DateTime> excludedDates,
+    String searchKey,
+  ) {
     final schedules = <Map<String, dynamic>>[];
     final now = DateTime.now();
 
     for (final fixed in fixedList) {
+      final areaKey = fixed['area_key']?.toString() ?? 'Area';
       // Ensure unique days to prevent redundant generation
       final Set<String> days = Set<String>.from(fixed['days'] ?? []);
 
@@ -269,9 +356,11 @@ class PickupService extends ChangeNotifier {
 
           if (!hasOverride) {
             final dateKey = normalizedDate.toIso8601String().split('T').first;
+            // Include time in ID to allow multiple schedules on the same day
+            final timeKey = fixedTimeValue.replaceAll(':', '');
             schedules.add({
-              'id': 'fixed_${key}_$dateKey',
-              'address': serviceArea,
+              'id': 'fixed_${areaKey}_${dateKey}_$timeKey',
+              'address': areaKey,
               'type': fixed['scheduleName'] ?? 'Regular Collection',
               'time': fixedTimeValue,
               'date': DateTime(
@@ -502,14 +591,18 @@ class PickupService extends ChangeNotifier {
 
   void reset() {
     _scheduleSubscription?.cancel();
-    _fixedScheduleSubscription?.cancel();
     _scheduleSubscription = null;
-    _fixedScheduleSubscription = null;
     _currentServiceArea = null;
     clearAll();
   }
 
   Future<void> _scheduleReminders({bool isCollector = false}) async {
+    if (_remindersScheduled) {
+      if (kDebugMode) print('⏳ PickupService: _scheduleReminders skipped (already in progress)');
+      return;
+    }
+    _remindersScheduled = true;
+
     if (kDebugMode) {
       print(
           '🛠️ PickupService: _scheduleReminders called (isCollector: $isCollector)');
@@ -558,7 +651,6 @@ class PickupService extends ChangeNotifier {
       final String originalAddress =
           (pickup['address'] ?? 'Unknown').toString();
       final String baseArea = originalAddress.split(',')[0].trim();
-      final String type = pickup['type']?.toString() ?? 'Waste Pickup';
       final DateTime date = pickup['date'] as DateTime;
       final String timeStr = pickup['time']?.toString() ?? '8:00';
 
@@ -593,13 +685,13 @@ class PickupService extends ChangeNotifier {
           );
         }
       } else {
-        // --- RESIDENT REMINDERS (Unified Alert) ---
-
+        // --- SCHEDULING LOGIC ---
         // 1. Instant Alert / "On the way"
         final bool isToday = _normalizeDate(date) == _normalizeDate(now);
         final bool statusActive =
             pickup['status']?.toString().toLowerCase() == 'on_the_way' &&
                 isToday;
+        // Allow a 5-minute window for "instant" alerts if time is very close
         final bool timeActive = date.isAfter(now) &&
             date.difference(now).inMinutes <= 30 &&
             isToday;
@@ -610,11 +702,12 @@ class PickupService extends ChangeNotifier {
           final String title =
               isHomeBarangay ? '🚛 Truck Coming Now!' : '🚛 Collector On Route';
           final String body = isHomeBarangay
-              ? 'Get ready! $type is starting in $baseArea very soon.'
+              ? 'Get ready! Waste Pickup is starting in $baseArea very soon.'
               : 'The collector is on the way to $baseArea!';
 
+          if (kDebugMode) print('📢 [ALARM] Triggering INSTANT alert for $baseArea');
           await NotificationService.showNotification(
-            id: stableId + 1,
+            id: stableId + 100,
             title: title,
             body: body,
             payload: 'immediate_schedule_$stableId',
@@ -622,50 +715,51 @@ class PickupService extends ChangeNotifier {
         }
 
         // --- STOP HERE FOR NEIGHBORING BARANGAYS ---
-        // As requested, only "On the way" notifications are sent for other areas.
+        // As requested, only "On the way" notifications are sent for neighboring areas.
         if (!isHomeBarangay) continue;
 
-        // 2. 2 hours before (Only for Home)
-        final hoursBeforeDate = date.subtract(const Duration(hours: 2));
-        if (hoursBeforeDate.isAfter(now)) {
+        // 3. 1 Hour Before Reminder
+        final DateTime oneHourBefore = date.subtract(const Duration(hours: 1));
+        if (oneHourBefore.isAfter(now)) {
+          if (kDebugMode) print('📢 [ALARM READY] "1 Hour Before" for $baseArea at $oneHourBefore (ID: ${stableId + 300})');
           await NotificationService.scheduleNotification(
-            id: stableId + 2,
-            title: Translations.getBilingualText(
-                '🛣️ Put your garbage in designated area'),
-            body: Translations.getBilingualText(
-                'Your collection in $baseArea is scheduled in 2 hours. Get ready!'),
-            scheduledDate: hoursBeforeDate,
-            payload: 'resident_schedule_soon_$stableId',
+            id: stableId + 300,
+            title: '🛣️ Put Your Garbage Out',
+            body: 'Your collection in $baseArea is in 1 hour. Kindly place your garbage in the designated area.\n(Ang koleksyon sa basura sa $baseArea magsugod sulod sa 1 ka oras. Palihug ibutang ang inyong basura sa designated area.)',
+            scheduledDate: oneHourBefore,
+            payload: 'soon_$stableId',
           );
         }
 
-        // 3. Exactly on Time
-        if (date.isAfter(now)) {
+        // 4. Day Before Reminder (6:00 PM)
+        final DateTime dayBefore = DateTime(date.year, date.month, date.day - 1, 18, 0);
+        if (dayBefore.isAfter(now)) {
+          if (kDebugMode) print('📢 [ALARM READY] "Day Before" for $baseArea at $dayBefore (ID: ${stableId + 500})');
           await NotificationService.scheduleNotification(
-            id: stableId + 3,
-            title: Translations.getBilingualText('⏰ Collection Time'),
-            body: Translations.getBilingualText(
-                "It's already time! The collector will notify you when they start their route."),
+            id: stableId + 500,
+            title: '📅 Collection Tomorrow',
+            body: 'Heads up! Your eco collection in $baseArea is scheduled for tomorrow at $timeStr. Please prepare your garbage in advance.\n(Pahibalo! Ang koleksyon sa basura sa $baseArea naka-schedule ugma alas $timeStr. Palihug andama daan ang inyong basura.)',
+            scheduledDate: dayBefore,
+            payload: 'tomorrow_$stableId',
+          );
+        }
+
+        // 5. Exact Time Reminder
+        // Use a 30-second grace period for instant feedback
+        final DateTime graceThreshold = now.subtract(const Duration(seconds: 30));
+        if (date.isAfter(graceThreshold)) {
+          if (kDebugMode) print('📢 [ALARM READY] "Exact Time" for $baseArea at $date (ID: ${stableId + 400})');
+          await NotificationService.scheduleNotification(
+            id: stableId + 400,
+            title: '⏰ Collection Time',
+            body: 'The collection truck is expected to arrive in $baseArea shortly. Please ensure your garbage is ready for pickup.\n(Ang trak sa koleksyon gilauman nga moabot sa $baseArea sa dili madugay. Palihug siguroha nga andam na ang inyong basura.)',
             scheduledDate: date,
-            payload: 'resident_schedule_exact_$stableId',
-          );
-        }
-
-        // 4. Day Before (at 6:00 PM) (Only for Home)
-        final dayBeforeDate = DateTime(date.year, date.month, date.day, 18, 0)
-            .subtract(const Duration(days: 1));
-        if (dayBeforeDate.isAfter(now)) {
-          await NotificationService.scheduleNotification(
-            id: stableId + 4,
-            title: Translations.getBilingualText('♻️ Collection Tomorrow'),
-            body: Translations.getBilingualText(
-                'Heads up! Your waste collection in $baseArea is scheduled for tomorrow at $timeStr. prepare your garbage'),
-            scheduledDate: dayBeforeDate,
-            payload: 'resident_schedule_tomorrow_$stableId',
+            payload: 'exact_schedule_$stableId',
           );
         }
       }
     }
+    _remindersScheduled = false;
   }
 
   /// Fetches completed collections for the service area.
@@ -778,13 +872,6 @@ class PickupService extends ChangeNotifier {
   @override
   void dispose() {
     _scheduleSubscription?.cancel();
-    _fixedScheduleSubscription?.cancel();
-    super.dispose();
-  }
-}
-  void dispose() {
-    _scheduleSubscription?.cancel();
-    _fixedScheduleSubscription?.cancel();
     super.dispose();
   }
 }

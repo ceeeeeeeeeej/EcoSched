@@ -82,7 +82,7 @@
             <div class="hm-modal-content">
                 <div class="hm-modal-header">
                     <div class="hm-modal-title">
-                        <i class="fas fa-keyboard"></i> Define Waste Data
+                        <i class="fas fa-clipboard-list"></i> Ten Year Solid Waste Management Plan
                     </div>
                     <div class="hm-modal-header-ctrls">
                         <button class="btn btn-outline btn-small" id="hmAutoBtn"
@@ -118,7 +118,7 @@
             <div class="hm-result-header">
                 <div>
                     <h2 class="hm-result-title">
-                        <i class="fas fa-th"></i> Waste Analytics Heatmap
+                        <i class="fas fa-th"></i> Ten Year Solid Waste Management Plan
                     </h2>
                     <p class="hm-result-sub">Generated based on provided waste data</p>
                 </div>
@@ -151,7 +151,7 @@
         <!-- Reports Section -->
         <div class="reports-section">
             <div class="section-header">
-                <h3>Recent Reports</h3>
+                <h3>Management Plan History</h3>
                 <button class="btn btn-outline" onclick="createCustomReport()">
                     <i class="fas fa-plus"></i>
                     Custom Report
@@ -189,7 +189,7 @@
                 resultSection.style.display = 'block';
             }
 
-            // Trigger the heatmap render logic
+            // Trigger the heatmap render logic (also saves to localStorage + DB)
             WasteHeatmap._applyForm();
 
             // Show Toast
@@ -219,37 +219,84 @@
         }
 
         /**
-         * Auto-populates the heatmap from Supabase collection records
-         * (analyticsData is exposed by analytics.js after the module loads).
-         * Falls back gracefully if no records exist.
+         * Auto-populates the heatmap.
+         * Priority:
+         *  1. Most recent saved plan from `waste_management_plans` Supabase table.
+         *  2. Falls back to classifying collection records (keyword-based).
+         *  3. Shows alert only if no data available at all.
          */
-        function hmAutoPopulate() {
+        async function hmAutoPopulate() {
             const btn = document.getElementById('hmAutoBtn');
             if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
 
-            setTimeout(() => {
+            let loaded = false;
+
+            // ── Step 1: try the waste_management_plans table (silent fail) ──
+            try {
+                const client = window.__supabaseClient;
+                if (client) {
+                    const { data: plans, error } = await client
+                        .from('waste_management_plans')
+                        .select('waste_data, generated_at')
+                        .order('generated_at', { ascending: false })
+                        .limit(1);
+
+                    if (!error && plans && plans.length > 0 && plans[0].waste_data) {
+                        WasteHeatmap.update(plans[0].waste_data);
+                        WasteHeatmap.renderForm('heatmapFormRoot');
+                        const dateStr = new Date(plans[0].generated_at).toLocaleString();
+                        console.log('[Auto-populate] Loaded latest plan from DB, saved at:', dateStr);
+                        loaded = true;
+                    }
+                }
+            } catch(e) {
+                // Table may not exist yet — silently continue to fallback
+                console.warn('[Auto-populate] Could not load from waste_management_plans:', e.message);
+            }
+
+            // ── Step 2: fall back to classifying collection records ────────
+            if (!loaded) {
                 try {
-                    // analyticsData is a module-scoped var in analytics.js
-                    // We expose it via window.analyticsData in analytics.js
                     const records = (window.analyticsData && window.analyticsData.collections) || [];
                     const derived = WasteHeatmap.loadFromCollections(records);
                     if (derived) {
                         WasteHeatmap.update(derived);
-                        // Reflect in the form
                         WasteHeatmap.renderForm('heatmapFormRoot');
-                    } else {
-                        alert('No collection records found in the database yet.');
+                        console.log('[Auto-populate] Loaded data from collection records.');
+                        loaded = true;
                     }
                 } catch(e) {
-                    console.error('Auto-populate error:', e);
+                    console.warn('[Auto-populate] Collection records fallback failed:', e.message);
                 }
-                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-database"></i> Auto-populate'; }
-            }, 300);
+            }
+
+            // ── Step 3: nothing available ─────────────────────────────────
+            if (!loaded) {
+                alert('No saved plan or collection records found yet.\nEnter values manually and click "Generate Analytics" to create a plan.');
+            }
+
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-database"></i> Auto-populate'; }
         }
 
-        // Initialize the form on load (non-module context waits for DOMContentLoaded)
+        // Initialize form and restore saved heatmap on load
         document.addEventListener('DOMContentLoaded', () => {
+            // Always render the blank form first
             WasteHeatmap.renderForm('heatmapFormRoot');
+
+            // Restore last saved heatmap from localStorage (persists across refreshes)
+            const saved = WasteHeatmap.loadFromLocalStorage();
+            if (saved) {
+                // Re-render the heatmap result
+                WasteHeatmap.update(saved);
+                // Re-populate the input form with the saved values
+                WasteHeatmap.renderForm('heatmapFormRoot');
+
+                // Show the result section
+                const resultSection = document.getElementById('hmResultSection');
+                if (resultSection) resultSection.style.display = 'block';
+
+                console.log('[WasteHeatmap] Restored previous plan from localStorage.');
+            }
         });
     </script>
 </body>

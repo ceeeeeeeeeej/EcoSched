@@ -234,8 +234,8 @@ class Translations {
     if (englishText.contains('Truck is now starting')) {
       return '$englishText\n(Ang trak nagsugod na sa pagkolekta. Andama na inyong mga basura!)';
     }
-    if (englishText.contains('scheduled in 2 hours')) {
-      return '$englishText\n(Ang koleksyon naka-iskedyul sulod sa 2 ka oras.)';
+    if (englishText.contains('scheduled in 1 hour')) {
+      return '$englishText\n(Ang koleksyon naka-iskedyul sulod sa 1 ka oras.)';
     }
     if (englishText.contains('has been added')) {
       return '$englishText\n(Adunay bag-ong koleksyon nga gidugang.)';

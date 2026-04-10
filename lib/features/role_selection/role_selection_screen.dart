@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/transitions/nature_transitions.dart';
@@ -7,8 +6,6 @@ import '../../widgets/enhanced_nature_background.dart';
 import '../../widgets/glassmorphic_container.dart';
 import '../../widgets/animated_button.dart';
 import '../resident/screens/resident_location_selection_screen.dart';
-import '../../core/services/auth_service.dart';
-import '../../core/routes/app_router.dart';
 
 class RoleSelectionScreen extends StatefulWidget {
   const RoleSelectionScreen({super.key});
@@ -56,14 +53,6 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen>
 
     _fadeController.forward();
     _slideController.forward();
-
-    // If already authenticated, skip role selection and go home
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AuthService>(context, listen: false);
-      if (auth.isAuthenticated) {
-        context.goHomeForRole();
-      }
-    });
   }
 
   @override

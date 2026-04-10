@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -13,7 +15,6 @@ import 'package:timezone/timezone.dart' as tz;
 import '../routes/app_router.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'dart:io';
 import '../localization/translations.dart';
 import '../utils/id_utils.dart';
 
@@ -126,7 +127,7 @@ class NotificationService {
       // Initialize local notifications immediately (Sync/Fast)
       try {
         const androidSettings =
-            fln.AndroidInitializationSettings('@mipmap/ic_launcher');
+            fln.AndroidInitializationSettings('@drawable/ic_notification');
         const iosSettings = fln.DarwinInitializationSettings(
           requestAlertPermission: true,
           requestBadgePermission: true,
@@ -145,49 +146,49 @@ class NotificationService {
         );
 
         // Request permissions and create channel explicitly for Android 13+ (API 33+)
-        if (defaultTargetPlatform == TargetPlatform.android) {
-          final androidImplementation =
-              _localNotifications.resolvePlatformSpecificImplementation<
-                  fln.AndroidFlutterLocalNotificationsPlugin>();
+        final androidImplementation =
+            _localNotifications.resolvePlatformSpecificImplementation<
+                fln.AndroidFlutterLocalNotificationsPlugin>();
 
-          await androidImplementation?.requestNotificationsPermission();
-
-          // Explicitly create the high-importance channel
-          const androidChannel = fln.AndroidNotificationChannel(
-            'ecosched_alerts',
-            'EcoSched Alerts',
-            description: 'Important notifications and schedule updates',
-            importance: fln.Importance.max,
-            playSound: true,
-            enableVibration: true,
-          );
-
-          await androidImplementation
-              ?.createNotificationChannel(androidChannel);
-
-          // CRITICAL: Also register the reminders channel used by scheduleNotification
-          const remindersChannel = fln.AndroidNotificationChannel(
-            'ecosched_reminders',
-            'EcoSched Reminders',
-            description: 'Scheduled reminders for waste collection',
-            importance: fln.Importance.max,
-            playSound: true,
-            enableVibration: true,
-          );
-          await androidImplementation
-              ?.createNotificationChannel(remindersChannel);
-
-          // Request exact alarm permission on Android 12+ (API 31+)
-          // This prevents silent alarm failures when the permission is denied.
-          try {
+        final bool? granted =
+            await androidImplementation?.requestNotificationsPermission();
+        final bool? exactAlarmsGranted =
             await androidImplementation?.requestExactAlarmsPermission();
-          } catch (_) {
-            // requestExactAlarmsPermission may not exist on older plugin versions — safe to ignore
-          }
+
+        if (kDebugMode) {
+          print('🔔 [NotificationService] System Permissions:');
+          print('   - Notifications: ${granted ?? 'unknown'}');
+          print('   - Exact Alarms: ${exactAlarmsGranted ?? 'unknown'}');
+        }
+
+        // Explicitly create the high-importance channel for Instant Alerts
+        final androidChannel = fln.AndroidNotificationChannel(
+          'ecosched_alerts',
+          'EcoSched Alerts',
+          description: 'Important notifications and schedule updates',
+          importance: fln.Importance.max,
+          playSound: true,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
+        );
+
+        await androidImplementation?.createNotificationChannel(androidChannel);
+
+        // CRITICAL: Reminders channel for scheduled alarms
+        final remindersChannel = fln.AndroidNotificationChannel(
+          'ecosched_reminders',
+          'EcoSched Reminders',
+          description: 'Scheduled reminders for waste collection',
+          importance: fln.Importance.max,
+          playSound: true,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 400, 100, 400]),
+        );
+        await androidImplementation?.createNotificationChannel(remindersChannel);
 
         if (kDebugMode) print('🔔 Local notifications initialized');
       } catch (e) {
-        if (kDebugMode) print('Error initializing local notifications: $e');
+        if (kDebugMode) print('❌ Error initializing local notifications: $e');
       }
 
       // Load saved barangay/user ID to initialize listeners correctly
@@ -284,7 +285,7 @@ class NotificationService {
                 final createdAt = DateTime.tryParse(createdAtStr);
                 if (createdAt != null) {
                   final now = DateTime.now();
-                  final diff = now.difference(createdAt).inMinutes;
+                  final diff = now.difference(createdAt).inMinutes.abs();
 
                   // If we just connected and the message is over 2 min old, it's likely a backlog.
                   if (diff > 2 && _processedNotificationIds.isEmpty) {
@@ -348,8 +349,7 @@ class NotificationService {
     }
 
     final rawTitle = data['title']?.toString() ?? 'EcoSched Update';
-    final rawBody =
-        data['message']?.toString() ?? 'You have a new notification';
+    final rawBody = data['message']?.toString() ?? 'You have a new notification';
 
     final title = Translations.getBilingualText(rawTitle);
     final body = Translations.getBilingualText(rawBody);
@@ -381,14 +381,12 @@ class NotificationService {
     _showInAppAlert(bilingualTitle, bilingualBody);
 
     // Also show local notification for better visibility
-    /* 
     showNotification(
       id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title: title,
       body: body,
       payload: title,
     );
-    */
   }
 
   static void _showInAppAlert(String title, String message) {
@@ -458,6 +456,7 @@ class NotificationService {
 
       // Try exact alarm first, fall back to inexact if permission is denied
       try {
+        if (kDebugMode) print('⏳ [ALARM] Attempting to register EXACT alarm at $scheduledTZDate...');
         await _localNotifications.zonedSchedule(
           id,
           bilingualTitle,
@@ -470,8 +469,11 @@ class NotificationService {
               channelDescription: 'Scheduled reminders for waste collection',
               importance: fln.Importance.max,
               priority: fln.Priority.high,
-              icon: '@mipmap/ic_launcher',
+              icon: '@drawable/ic_notification',
+              largeIcon: const fln.DrawableResourceAndroidBitmap('@mipmap/launcher_icon'),
               playSound: true,
+              enableVibration: true,
+              fullScreenIntent: true, // Wake up screen
             ),
             iOS: const fln.DarwinNotificationDetails(
               presentAlert: true,
@@ -484,10 +486,10 @@ class NotificationService {
               fln.UILocalNotificationDateInterpretation.absoluteTime,
           payload: payload ?? title,
         );
-        if (kDebugMode) print('✅ [Notification] Exact alarm registered for: $scheduledTZDate');
+        if (kDebugMode) print('✅ [ALARM SUCCESS] Exact alarm registered for: $scheduledTZDate (ID: $id)');
       } catch (exactErr) {
         // Exact alarm failed (permission denied) — fall back to inexact so it still fires
-        if (kDebugMode) print('⚠️ Exact alarm failed ($exactErr), falling back to inexact...');
+        if (kDebugMode) print('⚠️ [ALARM FALLBACK] Exact alarm failed ($exactErr), falling back to inexact...');
         await _localNotifications.zonedSchedule(
           id,
           bilingualTitle,
@@ -500,7 +502,8 @@ class NotificationService {
               channelDescription: 'Scheduled reminders for waste collection',
               importance: fln.Importance.max,
               priority: fln.Priority.high,
-              icon: '@mipmap/ic_launcher',
+              icon: '@drawable/ic_notification',
+              largeIcon: const fln.DrawableResourceAndroidBitmap('@mipmap/launcher_icon'),
               playSound: true,
             ),
             iOS: const fln.DarwinNotificationDetails(
@@ -514,11 +517,11 @@ class NotificationService {
               fln.UILocalNotificationDateInterpretation.absoluteTime,
           payload: payload ?? title,
         );
-        if (kDebugMode) print('✅ [Notification] Inexact alarm registered as fallback for: $scheduledTZDate');
+        if (kDebugMode) print('✅ [ALARM SUCCESS] Inexact alarm registered for: $scheduledTZDate (ID: $id)');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error scheduling notification: $e');
+        print('❌ [ALARM CRITICAL] Error scheduling notification: $e');
       }
     }
   }
@@ -549,7 +552,8 @@ class NotificationService {
     if (!_isSupportedPlatform) return;
 
     if (kDebugMode) {
-      print("🔔 [Notification] Showing Local alert: $title");
+      print("🔔 [Notification] Triggering IMMEDIATE alert: $title");
+      print("🔥 NOTIFICATION TRIGGERED (System Display Requested)");
       if (title.contains('Approved')) {
         print("✅ [ACCURACY CHECK] Approval Local Notification Triggered!");
       }
@@ -560,14 +564,15 @@ class NotificationService {
         id,
         bilingualTitle,
         bilingualBody,
-        const fln.NotificationDetails(
+        fln.NotificationDetails(
           android: fln.AndroidNotificationDetails(
             'ecosched_alerts',
             'EcoSched Alerts',
             channelDescription: 'Important notifications and schedule updates',
             importance: fln.Importance.max,
             priority: fln.Priority.high,
-            icon: '@mipmap/ic_launcher',
+            icon: '@drawable/ic_notification',
+            largeIcon: const fln.DrawableResourceAndroidBitmap('@mipmap/launcher_icon'),
           ),
           iOS: fln.DarwinNotificationDetails(
             presentAlert: true,

@@ -401,14 +401,6 @@ function renderUsersTable() {
 
 // Create user row
 function createUserRow(user) {
-    const normalizedStatus = (user.status || 'active').toLowerCase();
-    const statusActionButton = normalizedStatus === 'active'
-        ? `<button class="action-icon action-deactivate" onclick="updateUserStatus('${user.id}', 'inactive')" title="Deactivate">
-                <i class="fas fa-user-slash"></i>
-           </button>`
-        : `<button class="action-icon action-activate" onclick="updateUserStatus('${user.id}', 'active')" title="Activate">
-                <i class="fas fa-user-check"></i>
-           </button>`;
 
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -436,9 +428,6 @@ function createUserRow(user) {
                 <button class="action-icon action-view" onclick="viewUser('${user.id}')" title="View">
                     <i class="fas fa-eye"></i>
                 </button>
-                <button class="action-icon action-edit" onclick="editUser('${user.id}')" title="Edit">
-                    <i class="fas fa-edit"></i>
-                </button>
                 ${['pending_approval', 'pending_verification'].includes((user.status || '').toLowerCase()) ? `
                 <button class="action-icon action-approve" onclick="approveUser('${user.id}')" title="Approve Account">
                     <i class="fas fa-check-circle"></i>
@@ -446,7 +435,6 @@ function createUserRow(user) {
                 <button class="action-icon action-reject" onclick="rejectUser('${user.id}')" title="Reject Account" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
                     <i class="fas fa-times-circle"></i>
                 </button>` : ''}
-                ${statusActionButton}
                 <button class="action-icon action-delete" onclick="deleteUser('${user.id}')" title="Delete">
                     <i class="fas fa-trash"></i>
                 </button>

@@ -71,8 +71,20 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { resident_id, title, body, notification_body, broadcast, barangay, collapse_key } = await req.json();
-    const msgBody = body || notification_body || "New alert from EcoSched";
+    const rawPayload = await req.json();
+    
+    // 🎁 Unwrap Database Webhook Payload OR Normal Payload
+    const data = rawPayload.record ? rawPayload.record : rawPayload;
+
+    const title = data.title;
+    const body = data.message || data.body || data.notification_body;
+    const type = data.type || "alert";
+    const resident_id = data.user_id || data.resident_id; // Webhook uses 'user_id'
+    const barangay = data.barangay;
+    const broadcast = data.broadcast;
+    const collapse_key = data.collapse_key;
+
+    const msgBody = body || "New alert from EcoSched";
     const msgTitle = title || "EcoSched Alert";
     
     if (broadcast) {

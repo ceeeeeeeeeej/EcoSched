@@ -1,5 +1,8 @@
 // Analytics page functionality
-import { dbService, realtime, utils } from '../../config/supabase_config.js';
+import { dbService, realtime, utils, supabase } from '../../config/supabase_config.js';
+
+// Expose supabase client globally for heatmap.js (non-module) to use for DB saves
+window.__supabaseClient = supabase;
 
 console.log('📊 Analytics page loaded');
 
@@ -40,6 +43,7 @@ async function initializePage() {
     await loadInitialData();
     initializeCharts();
     updateUI();
+    loadPlanHistory(); // Load historical waste plans
     setupRealtimeSubscription();
     requestNotificationPermission();
 }
@@ -727,33 +731,141 @@ function generateSensorCSV(sensors) {
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 }
 
-// Create custom report
-function createCustomReport() {
-    console.log('📊 Creating custom report with real-time data...');
-    const reportData = {
-        dateRange: currentDateRange,
-        generatedAt: new Date().toISOString(),
-        customFilters: 'All data',
-        metrics: {
-            totalCollections: analyticsData.collections.length,
-            completedCollections: analyticsData.collections.filter(c => c.status === 'completed').length,
-            pendingCollections: analyticsData.collections.filter(c => c.status === 'pending').length,
-            totalFeedback: analyticsData.feedback.length,
-            avgRating: (analyticsData.feedback.reduce((sum, f) => sum + (f.rating || 0), 0) / analyticsData.feedback.length || 0).toFixed(2),
-            activeRoutes: analyticsData.routes.length
-        }
-    };
+// ── Plan History ──────────────────────────────────────────────────
 
-    console.log('Custom report data:', reportData);
-    // You can expand this to show a modal or download
+/**
+ * Loads and renders the history of 'Ten Year Solid Waste Management Plans'.
+ */
+async function loadPlanHistory() {
+    const grid = document.getElementById('reportsGrid');
+    if (!grid) return;
+
+    try {
+        const { data: plans, error } = await supabase
+            .from('waste_management_plans')
+            .select('*')
+            .order('generated_at', { ascending: false });
+
+        if (error) throw error;
+
+        renderPlanHistory(plans || []);
+    } catch (err) {
+        console.error('❌ Error loading plan history:', err);
+        grid.innerHTML = `<div class="error-state">Failed to load history: ${err.message}</div>`;
+    }
 }
 
+/**
+ * Renders history cards into the reportsGrid.
+ */
+function renderPlanHistory(plans) {
+    const grid = document.getElementById('reportsGrid');
+    if (!grid) return;
 
+    if (plans.length === 0) {
+        grid.innerHTML = `
+            <div class="empty-state" style="grid-column: 1/-1; text-align: center; padding: 3rem; color: #9CA3AF;">
+                <i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                <p style="font-size: 1.1rem; margin: 0;">No plans available yet</p>
+                <p style="font-size: 0.9rem; margin-top: 0.5rem;">Generate your first plan to see it here</p>
+            </div>`;
+        return;
+    }
+
+    grid.innerHTML = plans.map(plan => {
+        const date = new Date(plan.generated_at);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const grandTotal = parseFloat(plan.grand_total_kg || 0).toLocaleString();
+
+        return `
+            <div class="report-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
+                    <div class="report-badge">
+                       <i class="fas fa-check-circle"></i> Saved Plan
+                    </div>
+                    <div class="report-date">${dateStr}</div>
+                </div>
+                <h4>${plan.plan_name}</h4>
+                <div class="report-stat">
+                    <i class="fas fa-weight-hanging"></i>
+                    <span>Total Volume: <strong>${grandTotal} kg</strong></span>
+                </div>
+                <div class="report-footer">
+                    <span class="report-time">${timeStr}</span>
+                    <button class="btn btn-small" onclick="applyHistoricalPlan('${plan.id}')" style="background:#10b981;">
+                        <i class="fas fa-eye"></i> View Plan
+                    </button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+/**
+ * Loads a historical plan from the DB and applies it to the live heatmap/form.
+ */
+async function applyHistoricalPlan(id) {
+    const btn = event.currentTarget;
+    const oldText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        const { data, error } = await supabase
+            .from('waste_management_plans')
+            .select('waste_data')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+
+        if (data && data.waste_data) {
+            // Restore to heatmap
+            WasteHeatmap.update(data.waste_data);
+            // Restore to input form
+            WasteHeatmap.renderForm('heatmapFormRoot');
+
+            // Show result section if hidden
+            const resultSection = document.getElementById('hmResultSection');
+            if (resultSection) resultSection.style.display = 'block';
+
+            // Scroll to top of heatmap
+            if (resultSection) resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // Toast
+            const toast = document.getElementById('hmToast');
+            if (toast) {
+                toast.querySelector('.hm-toast-msg').textContent = 'Historical plan restored!';
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
+            }
+        }
+    } catch (err) {
+        console.error('❌ Error applying historical plan:', err);
+        alert('Could not load plan: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = oldText;
+    }
+}
 
 // Export functions to global scope
+window.applyHistoricalPlan = applyHistoricalPlan;
+window.refreshPlanHistory = loadPlanHistory;
 window.generateReport = generateReport;
 window.updateDateRange = updateDateRange;
 window.toggleChartType = toggleChartType;
 window.createCustomReport = createCustomReport;
 window.analyticsData = analyticsData;  // Expose for heatmap auto-populate
+// Removed unused exports
+}
+
+// Export functions to global scope
+window.refreshPlanHistory = loadPlanHistory;
+window.generateReport = generateReport;
+window.updateDateRange = updateDateRange;
+window.toggleChartType = toggleChartType;
+window.createCustomReport = createCustomReport;
+window.analyticsData = analyticsData;  // Expose for heatmap auto-populate
+window.applyHistoricalPlan = applyHistoricalPlan; // Use the robust version defined here
 // Removed unused exports

@@ -55,11 +55,6 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.bug_report, size: 20, color: Colors.grey),
-            tooltip: 'Send Test Notification',
-            onPressed: () => reminderService.triggerTestNotification(),
-          ),
           if (unreadCount > 0)
             TextButton(
               onPressed: reminderService.markAllAsRead,
@@ -83,15 +78,10 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'All Notifications',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.textDark,
-                                  ),
-                        ),
                         const SizedBox(height: 16),
+                        
+                        // --- QUICK DEBUG BUTTON REMOVED ---
+
                         Expanded(
                           child: ListView.builder(
                             itemCount: reminders.length,
