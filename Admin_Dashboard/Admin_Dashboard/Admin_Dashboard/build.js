@@ -61,7 +61,10 @@ const FILES_TO_PROCESS = {
         'assets/image/logo/logo1.png',
         'assets/image/logo/logo2.png',
         'assets/image/logo/logo3.png',
-        'assets/image/residentbackground.png'
+        'assets/image/residentbackground.png',
+        'assets/image/home/Screenshot 2025-10-21 173454.png',
+        'assets/image/home/Screenshot 2025-10-21 173514.png',
+        'assets/image/home/Screenshot 2025-10-21 173400.png'
     ]
 };
 
