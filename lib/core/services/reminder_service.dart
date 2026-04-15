@@ -101,7 +101,6 @@ class ReminderService extends ChangeNotifier {
       _activeUserId = effectiveUserId;
       _sentReminderKeys.clear();
 
-      // 🚀 Await fetch BEFORE starting listener to prevent popups for existing items
       _fetchNotifications().then((_) {
         _startNotificationListener();
       });
@@ -110,21 +109,24 @@ class ReminderService extends ChangeNotifier {
         print(
             '🛠️ ReminderService: Service area: $serviceArea, UserID: $effectiveUserId');
       }
+      
+      // Trigger an immediate check for tomorrow's schedules when dependencies update
+      scheduleMicrotask(_checkUpcomingCollections);
     }
   }
 
   void initialize() {
     if (kDebugMode) print('🛠️ ReminderService: Initializing timer...');
-    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
-    // _reminderCheckTimer = Timer.periodic(
-    //   const Duration(hours: 1),
-    //   (_) => _checkUpcomingCollections(),
-    // );
+    
+    // Check every hour to catch mid-day admin changes
+    _reminderCheckTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => _checkUpcomingCollections(),
+    );
 
     if (kDebugMode) print('🛠️ ReminderService: Timer started');
 
-    // Local collection checks have been disabled in favor of server-side Supabase Cron job.
-    // scheduleMicrotask(_checkUpcomingCollections);
+    scheduleMicrotask(_checkUpcomingCollections);
   }
 
   void _cancelNotificationSubscription() {
@@ -230,150 +232,36 @@ class ReminderService extends ChangeNotifier {
 
   void _startNotificationListener() {
     _cancelNotificationSubscription();
-    final userId = _activeUserId;
-    if (userId == null) return;
+    
+    final serviceArea = _currentServiceArea;
+    if (serviceArea == null || serviceArea.isEmpty) return;
 
-    _supabase
-        .channel('public:notifications:user:$userId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: SupabaseConfig.notificationsTable,
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'user_id',
-            value: userId,
-          ),
-          callback: (payload) {
-            final doc = payload.newRecord;
-            if (doc.isEmpty) return;
+    if (kDebugMode) {
+      print('📡 Starting Realtime Notifications Listener for Area: $serviceArea');
+    }
 
-            final id = doc['id'];
-            final createdAt = _parseTimestamp(doc['created_at']);
+    _notificationSubscription = _supabase
+        .from(SupabaseConfig.notificationsTable)
+        .stream(primaryKey: ['id'])
+        .listen((List<Map<String, dynamic>> data) {
+          // Filter locally to ensure case-insensitivity and handle targeted alerts
+          final hasUpdate = data.any((doc) {
+            final docArea = (doc['barangay']?.toString() ?? '').toLowerCase();
+            final docUserId = doc['user_id']?.toString();
+            
+            final isAreaMatch = docArea == serviceArea.toLowerCase() || docArea == 'all';
+            final isUserMatch = docUserId == _activeUserId;
+            
+            return isAreaMatch || isUserMatch;
+          });
 
-            // Only alert for TRULY new notifications (within last 60 seconds)
-            final bool isRecent =
-                DateTime.now().difference(createdAt).inSeconds < 60;
-
-            if (!_reminders.any((r) => r['id'] == id)) {
-              _reminders.insert(0, {
-                'id': id,
-                'title': Translations.getBilingualText(
-                    doc['title']?.toString() ?? 'Notification'),
-                'message': Translations.getBilingualText(
-                    doc['message']?.toString() ?? ''),
-                'type': doc['type']?.toString() ?? 'info',
-                'read': doc['is_read'] == true,
-                'createdAt': createdAt,
-              });
-
-              notifyListeners();
-
-              // Show local notification ONLY for recent high-priority alerts
-              if (isRecent && doc['type'] == 'alert') {
-                NotificationService.showNotification(
-                  id: id.hashCode & 0x7FFFFFFF,
-                  title: doc['title'] ?? 'New Alert',
-                  body: doc['message'] ?? 'You have a new notification',
-                );
-              }
-            }
-          },
-        )
-        .subscribe();
-
-    // ALSO Listen for targeted Barangay Notifications (Realtime)
-    _supabase
-        .channel('public:notifications:barangay:$_currentServiceArea')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: SupabaseConfig.notificationsTable,
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'barangay',
-            value: _currentServiceArea!,
-          ),
-          callback: (payload) {
-            final doc = payload.newRecord;
-            if (doc.isNotEmpty) {
-              final id = doc['id'];
-              if (!_reminders.any((r) => r['id'] == id)) {
-                _reminders.insert(0, {
-                  'id': id,
-                  'title': Translations.getBilingualText(
-                      doc['title']?.toString() ?? 'Barangay Alert'),
-                  'message': Translations.getBilingualText(
-                      doc['message']?.toString() ?? ''),
-                  'type': doc['type']?.toString() ?? 'alert',
-                  'read': doc['is_read'] == true,
-                  'createdAt': _parseTimestamp(doc['created_at']),
-                });
-
-                _reminders.sort((a, b) => (b['createdAt'] as DateTime)
-                    .compareTo(a['createdAt'] as DateTime));
-                notifyListeners();
-
-                // Show local notification
-                NotificationService.showNotification(
-                  id: id.hashCode & 0x7FFFFFFF,
-                  title: doc['title'] ?? 'New Alert',
-                  body: doc['message'] ?? 'You have a new notification',
-                );
-              }
-            }
-          },
-        )
-        .subscribe();
-
-    // Also listen to announcements
-    final serviceArea = _currentServiceArea ?? 'all';
-    _supabase
-        .channel('public:announcements')
-        .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
-            schema: 'public',
-            table: SupabaseConfig.announcementsTable,
-            callback: (payload) {
-              final newRecord = payload.newRecord;
-              if (newRecord.isNotEmpty) {
-                final targetAudience = newRecord['target_audience'] as String?;
-                if (targetAudience == 'all' || targetAudience == serviceArea) {
-                  final id = newRecord['id'];
-                  final exists = _reminders.any((r) => r['id'] == id);
-
-                  if (!exists) {
-                    _reminders.insert(0, {
-                      'id': id,
-                      'title': Translations.getBilingualText(
-                          newRecord['title']?.toString() ?? 'Announcement'),
-                      'message': Translations.getBilingualText(
-                          (newRecord['content'] ?? newRecord['message'])
-                                  ?.toString() ??
-                              ''),
-                      'type': 'announcement',
-                      'read': false,
-                      'createdAt': _parseTimestamp(newRecord['created_at']),
-                    });
-
-                    // Sort combined
-                    _reminders.sort((a, b) => (b['createdAt'] as DateTime)
-                        .compareTo(a['createdAt'] as DateTime));
-                    notifyListeners();
-
-                    // Show local notification
-                    NotificationService.showNotification(
-                      id: id.hashCode & 0x7FFFFFFF,
-                      title: newRecord['title'] ?? 'New Announcement',
-                      body: newRecord['content'] ??
-                          newRecord['message'] ??
-                          'You have a new announcement',
-                    );
-                  }
-                }
-              }
-            })
-        .subscribe();
+          if (hasUpdate) {
+            if (kDebugMode) print('🔔 Realtime Update: Match found, refreshing list...');
+            _fetchNotifications();
+          }
+        }, onError: (error) {
+          if (kDebugMode) print('❌ Realtime Listener Error: $error');
+        });
   }
 
   Future<void> _checkUpcomingCollections() async {
@@ -395,18 +283,22 @@ class ReminderService extends ChangeNotifier {
       return;
     }
 
-    // Check for tomorrow's collections
-    final tomorrowPickups = pickupService.pickupsForDate(tomorrow);
-    for (final pickup in tomorrowPickups) {
-      await _processPickupReminder(
-        pickup: pickup,
-        serviceArea: serviceArea,
-        title: '🗓️ Collection Tomorrow!',
-        typeKey: 'tomorrow',
-      );
+    // Check for tomorrow's collections (Only insert after 6:00 PM)
+    if (now.hour >= 18) {
+      final tomorrowPickups = pickupService.pickupsForDate(tomorrow);
+      for (final pickup in tomorrowPickups) {
+        await _processPickupReminder(
+          pickup: pickup,
+          serviceArea: serviceArea,
+          title: '🗓️ Collection Tomorrow!',
+          typeKey: 'tomorrow',
+        );
+      }
     }
 
-    // Check for collections in the next 2 hours
+    // [REMOVED] Check for collections in the next 2 hours (Truck Coming Soon)
+    // As per user request, we are removing the 2-hour warning to reduce noise.
+    /*
     final allPickups = pickupService.scheduledPickups;
     final soonPickups = allPickups.where((p) {
       final date = p['date'] as DateTime?;
@@ -421,6 +313,7 @@ class ReminderService extends ChangeNotifier {
         typeKey: 'soon',
       );
     }
+    */
   }
 
   Future<void> _processPickupReminder({
@@ -447,29 +340,33 @@ class ReminderService extends ChangeNotifier {
     final String title = typeKey == 'soon'
         ? '🚛 Truck Coming Soon!'
         : '🗓️ Collection Tomorrow!';
-    final String body =
-        'Get ready! $name is set for ${_formatDate(date)} at $time.';
+    
+    // Add "Please prepare your garbage" to the tomorrow reminder
+    final String body = typeKey == 'tomorrow'
+        ? 'Get ready! $name is set for ${_formatDate(date)} at $time. Please prepare your garbage.'
+        : 'Get ready! $name is set for ${_formatDate(date)} at $time.';
 
-    // Show local push notification
-    if (typeKey == 'soon' || typeKey == 'tomorrow') {
-      await NotificationService.showNotification(
-        id: (date.millisecondsSinceEpoch ~/ 1000) & 0x7FFFFFFF,
-        title: Translations.getBilingualText(title),
-        body: Translations.getBilingualText(body),
-      );
-    }
+    // Removed NotificationService.showNotification from here because 
+    // PickupService already natively schedules the push notifications 
+    // for exact times (including 6 PM day before). ReminderService 
+    // will just insert these records into Supabase to populate the Alerts tab.
 
     // Insert into Supabase so it shows up on the Alert Screen
     try {
       final userId = _activeUserId;
       if (userId != null) {
-        // Check if a similar notification already exists to prevent spam
-        final existing = _reminders.any((r) =>
-            r['title'] == title &&
-            r['message'] == body &&
-            r['type'] == 'reminder');
+        // --- DATABASE DEDUPLICATION ---
+        // Use a unique key to prevent duplicate rows for the same event
+        final dedupKey = 'reminder_${typeKey}_${serviceArea}_${_formatDate(date).replaceAll(' ', '_')}';
+        
+        final existing = await _supabase
+            .from(SupabaseConfig.notificationsTable)
+            .select('id')
+            .eq('user_id', userId)
+            .eq('metadata->>dedup_key', dedupKey)
+            .limit(1);
 
-        if (!existing) {
+        if (existing.isEmpty) {
           await _supabase.from(SupabaseConfig.notificationsTable).insert({
             'user_id': userId,
             'title': title,
@@ -478,6 +375,7 @@ class ReminderService extends ChangeNotifier {
             'priority': typeKey == 'soon' ? 'high' : 'medium',
             'is_read': false,
             'barangay': serviceArea,
+            'metadata': {'dedup_key': dedupKey},
           });
         }
       }
@@ -506,28 +404,62 @@ class ReminderService extends ChangeNotifier {
   }
 
   /// DEBUG: Trigger a test notification immediately
-  Future<void> triggerTestNotification() async {
-    const title = '🔔 Test Notification';
-    const message =
-        'Success! Your device is correctly set up to receive EcoSched alerts.';
+  Future<void> triggerInstantTest() async {
+    const title = '🔔 Instant Test';
+    const message = 'Success! Local notifications are working while the app is active.';
 
-    // 1. Show local system notification
     await NotificationService.showNotification(
       id: 999,
       title: title,
       body: message,
     );
+    
+    _addInternalReminder(title, message, 'info');
+  }
 
-    // 2. Add to in-app list
+  /// DEBUG: Trigger a test notification with a 30 second delay
+  Future<void> triggerDelayedTest() async {
+    const title = '⏰ 30s Delay Test';
+    const message = 'Success! Local notifications worked in the background after 30 seconds.';
+    
+    final scheduledDate = DateTime.now().add(const Duration(seconds: 30));
+
+    await NotificationService.scheduleNotification(
+      id: 888,
+      title: title,
+      body: message,
+      scheduledDate: scheduledDate,
+    );
+    
+    _addInternalReminder('⏰ Delay Test Started', 'Notification scheduled for 30s from now. Please background the app to test.', 'info');
+  }
+
+  /// DEBUG: Trigger a test notification with a 10 minute delay
+  Future<void> triggerTenMinuteTest() async {
+    const title = '🕒 10m Delay Test';
+    const message = 'Success! Local notifications worked in the background after 10 minutes.';
+    
+    final scheduledDate = DateTime.now().add(const Duration(minutes: 10));
+
+    await NotificationService.scheduleNotification(
+      id: 777,
+      title: title,
+      body: message,
+      scheduledDate: scheduledDate,
+    );
+    
+    _addInternalReminder('🕒 10m Test Started', 'Notification scheduled for 10 minutes from now. Great for testing deep sleep/Oppo background kills.', 'info');
+  }
+
+  void _addInternalReminder(String title, String message, String type) {
     _reminders.insert(0, {
       'id': 'test_${DateTime.now().millisecondsSinceEpoch}',
       'title': title,
       'message': message,
-      'type': 'info',
+      'type': type,
       'read': false,
       'createdAt': DateTime.now(),
     });
-
     notifyListeners();
   }
 

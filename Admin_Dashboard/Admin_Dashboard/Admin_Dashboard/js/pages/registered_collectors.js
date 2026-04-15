@@ -212,11 +212,11 @@ function renderCollectorTable() {
 
 function formatAssignment(area) {
     const map = {
-        'victoria': 'Victoria Barangay',
-        'dayo-an': 'Dayo-An Barangay',
+        'Victoria': 'Victoria Barangay',
+        'Dayo-an': 'Dayo-An Barangay',
         'coastal': 'Coastal Route'
     };
-    return map[area] || 'Unassigned';
+    return map[area] || map[area.toLowerCase()] || 'Unassigned';
 }
 
 function updateCollectorPaginationInfo() {

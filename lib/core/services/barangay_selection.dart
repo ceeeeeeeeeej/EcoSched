@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,8 +21,8 @@ class _BarangaySelectionState extends State<BarangaySelection> {
   bool isLoading = false;
 
   final List<String> barangays = [
-    "victoria",
-    "dayo-an",
+    "Victoria",
+    "Dayo-an",
   ];
 
   Future<void> verifyAndSave() async {
@@ -34,31 +33,8 @@ class _BarangaySelectionState extends State<BarangaySelection> {
     });
 
     try {
-      /// 1️⃣ Get user location
-      Position position = await LocationService.getCurrentLocation();
-
-      /// 2️⃣ Validate barangay
-      bool allowed = BarangayValidator.isInsideBarangay(
-        position,
-        selectedBarangay!,
-      );
-
-      if (!allowed) {
-        setState(() {
-          isLoading = false;
-        });
-
-        showDialog(
-          context: context,
-          builder: (_) => const AlertDialog(
-            title: Text("Access Denied"),
-            content: Text("You are not inside the selected barangay."),
-          ),
-        );
-
-        return;
-      }
-
+      /// 1️⃣ GPS Bypass - Directly save and continue
+      
       /// 3️⃣ Save barangay locally
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -66,7 +42,7 @@ class _BarangaySelectionState extends State<BarangaySelection> {
         selectedBarangay!,
       );
 
-      /// 4️⃣ Register Device via PushNotificationService
+      /// 4️⃣ Register Device
       await PushNotificationService.registerDeviceForPush();
 
       /// 7️⃣ Navigate to home

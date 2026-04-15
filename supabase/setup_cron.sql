@@ -1,35 +1,25 @@
--- ==========================================
--- SETUP: RELIABLE SCHEDULE CRON JOB
--- ==========================================
--- This script enables the pg_cron extension and sets up 
--- a recurring task to call the 'check-schedules' Edge Function
--- every minute. This ensures notifications are sent even 
--- if the Admin Dashboard is closed.
+-- 1. Enable Required Extensions
+create extension if not exists pg_cron;
+create extension if not exists http;
 
--- 1. Enable the pg_cron extension
-CREATE EXTENSION IF NOT EXISTS pg_cron;
+-- 2. Create the Cron Job
+-- This will run every 5 minutes and call the 'check-schedules' Edge Function.
+-- Replace YOUR_PROJECT_REF with your actual Supabase project reference.
+-- Replace YOUR_SERVICE_ROLE_KEY with your service_role API key.
 
--- 2. Create the cron job
--- IMPORTANT: Replace 'YOUR_SERVICE_ROLE_KEY' with your actual 
--- Supabase Service Role Key (found in Project Settings > API)
-SELECT cron.schedule(
-    'check-schedules-every-minute', -- unique job name
-    '* * * * *',                   -- every minute
+select
+  cron.schedule(
+    'check-schedules-every-5-mins',
+    '*/5 * * * *',
     $$
-    SELECT
+    select
       net.http_post(
-        url := 'https://bfqktqtsjchbmopafgzf.supabase.co/functions/v1/check-schedules',
-        headers := jsonb_build_object(
-          'Content-Type', 'application/json',
-          'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'
-        ),
-        body := '{}'::jsonb
+        url:='https://YOUR_PROJECT_REF.supabase.co/functions/v1/check-schedules',
+        headers:='{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb,
+        body:='{}'::jsonb
       ) as request_id;
     $$
-);
+  );
 
--- 3. Verify the job was created
--- SELECT * FROM cron.job;
-
--- 4. Monitor job runs (optional)
--- SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+-- 3. Verify the cron job
+select * from cron.job;

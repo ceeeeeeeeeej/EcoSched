@@ -117,8 +117,8 @@ class _WelcomeAnimationScreenState extends State<WelcomeAnimationScreen>
       final serviceArea = _mapBarangayToServiceArea(barangay);
       debugPrint('🔄 Loading schedules for service area: $serviceArea');
       pickupService.loadSchedulesForServiceArea(serviceArea);
-      NotificationService.subscribeToServiceAreaTopic(serviceArea,
-          userId: auth.residentId);
+      // NotificationService.subscribeToServiceAreaTopic(serviceArea,
+      //     userId: auth.residentId);
 
       debugPrint('⏱️ Waiting 2 seconds before navigation...');
       // Wait for the full duration before navigating

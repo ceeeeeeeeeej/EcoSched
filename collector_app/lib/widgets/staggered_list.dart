@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 
 class StaggeredList extends StatefulWidget {
   final List<Widget> children;

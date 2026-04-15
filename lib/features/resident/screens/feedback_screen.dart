@@ -175,8 +175,10 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                   text: TextSpan(
                                     children: [
                                       TextSpan(
-                                        text: 'Help Us Improve Local Collection\n',
-                                        style: theme.textTheme.headlineSmall?.copyWith(
+                                        text:
+                                            'Help Us Improve Local Collection\n',
+                                        style: theme.textTheme.headlineSmall
+                                            ?.copyWith(
                                           fontWeight: FontWeight.w700,
                                           color: primaryTextOnCard,
                                           letterSpacing: -0.5,
@@ -184,7 +186,8 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                       ),
                                       TextSpan(
                                         text: '(Tabangi Kami sa Pagpalambo)',
-                                        style: theme.textTheme.titleMedium?.copyWith(
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
                                           fontStyle: FontStyle.italic,
                                           color: AppTheme.primary,
                                           fontWeight: FontWeight.w500,
@@ -201,14 +204,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                             text: TextSpan(
                               children: [
                                 TextSpan(
-                                  text: 'Report issues or suggest improvements to waste management in your area. Your feedback helps us maintain a cleaner community.\n\n',
+                                  text:
+                                      'Report issues or suggest improvements to waste management in your area. Your feedback helps us maintain a cleaner community.\n\n',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: secondaryTextOnCard,
                                     height: 1.5,
                                   ),
                                 ),
                                 TextSpan(
-                                  text: '(I-report ang mga isyu o isugyot ang mga paagi para mapalambo ang pagdumala sa basura sa inyong lugar. Ang imong feedback makatabang sa pagmintinar sa kalimpyo sa atong komunidad.)',
+                                  text:
+                                      '(I-report ang mga isyu o isugyot ang mga paagi para mapalambo ang pagdumala sa basura sa inyong lugar. Ang imong feedback makatabang sa pagmintinar sa kalimpyo sa atong komunidad.)',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: secondaryTextOnCard,
                                     fontStyle: FontStyle.italic,
@@ -299,14 +304,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                       children: [
                                         TextSpan(
                                           text: '$english\n',
-                                          style: theme.textTheme.bodyLarge?.copyWith(
+                                          style: theme.textTheme.bodyLarge
+                                              ?.copyWith(
                                             color: primaryTextOnCard,
                                           ),
                                         ),
                                         if (bisaya.isNotEmpty)
                                           TextSpan(
                                             text: bisaya,
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
                                               fontStyle: FontStyle.italic,
                                               color: secondaryTextOnCard,
                                             ),
@@ -335,7 +342,8 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                     if (bisaya.isNotEmpty)
                                       Text(
                                         bisaya,
-                                        style: theme.textTheme.bodySmall?.copyWith(
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
                                           fontStyle: FontStyle.italic,
                                           color: secondaryTextOnCard,
                                         ),
@@ -359,7 +367,8 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                 children: [
                                   TextSpan(
                                     text: 'Priority Level\n',
-                                    style: theme.textTheme.titleMedium?.copyWith(
+                                    style:
+                                        theme.textTheme.titleMedium?.copyWith(
                                       fontWeight: FontWeight.w600,
                                       color: primaryTextOnCard,
                                     ),
@@ -390,7 +399,8 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                 return _priorities.map((String priority) {
                                   final parts = priority.split(' | ');
                                   final english = parts[0];
-                                  final bisaya = parts.length > 1 ? parts[1] : '';
+                                  final bisaya =
+                                      parts.length > 1 ? parts[1] : '';
 
                                   return Container(
                                     alignment: Alignment.centerLeft,
@@ -400,14 +410,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                         children: [
                                           TextSpan(
                                             text: '$english\n',
-                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                            style: theme.textTheme.bodyLarge
+                                                ?.copyWith(
                                               color: primaryTextOnCard,
                                             ),
                                           ),
                                           if (bisaya.isNotEmpty)
                                             TextSpan(
                                               text: bisaya,
-                                              style: theme.textTheme.bodySmall?.copyWith(
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
                                                 fontStyle: FontStyle.italic,
                                                 color: secondaryTextOnCard,
                                               ),
@@ -426,20 +438,23 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                 return DropdownMenuItem<String>(
                                   value: priority,
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 4.0),
                                     child: RichText(
                                       text: TextSpan(
                                         children: [
                                           TextSpan(
                                             text: '$english\n',
-                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                            style: theme.textTheme.bodyLarge
+                                                ?.copyWith(
                                               color: primaryTextOnCard,
                                             ),
                                           ),
                                           if (bisaya.isNotEmpty)
                                             TextSpan(
                                               text: bisaya,
-                                              style: theme.textTheme.bodySmall?.copyWith(
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
                                                 fontStyle: FontStyle.italic,
                                                 color: secondaryTextOnCard,
                                               ),
@@ -458,7 +473,6 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                             ),
                             const SizedBox(height: 16),
                           ],
-
 
                           // Message Field
                           RichText(
@@ -518,14 +532,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                         children: [
                                           TextSpan(
                                             text: 'Barangay\n',
-                                            style: theme.textTheme.titleMedium?.copyWith(
+                                            style: theme.textTheme.titleMedium
+                                                ?.copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: primaryTextOnCard,
                                             ),
                                           ),
                                           TextSpan(
                                             text: '(Barangay)',
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
                                               fontStyle: FontStyle.italic,
                                               color: secondaryTextOnCard,
                                             ),
@@ -555,14 +571,16 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                                         children: [
                                           TextSpan(
                                             text: 'Purok\n',
-                                            style: theme.textTheme.titleMedium?.copyWith(
+                                            style: theme.textTheme.titleMedium
+                                                ?.copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: primaryTextOnCard,
                                             ),
                                           ),
                                           TextSpan(
                                             text: '(Purok)',
-                                            style: theme.textTheme.bodySmall?.copyWith(
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
                                               fontStyle: FontStyle.italic,
                                               color: secondaryTextOnCard,
                                             ),
@@ -592,6 +610,9 @@ class _FeedbackScreenState extends State<FeedbackScreen>
 
                     // Submit Button
                     AnimatedButton(
+                      onPressed: _isSubmitting ? null : _submitFeedback,
+                      isGradient: true,
+                      gradientColors: AppTheme.primaryGradient,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -632,9 +653,6 @@ class _FeedbackScreenState extends State<FeedbackScreen>
                           ),
                         ],
                       ),
-                      onPressed: _isSubmitting ? null : _submitFeedback,
-                      isGradient: true,
-                      gradientColors: AppTheme.primaryGradient,
                     ),
                   ],
                 ),
@@ -682,7 +700,8 @@ class _FeedbackScreenState extends State<FeedbackScreen>
         _formKey.currentState?.reset();
         _messageController.clear();
         setState(() {
-          _selectedCategory = 'General waste concern | (Kinatibuk-an sa basura)';
+          _selectedCategory =
+              'General waste concern | (Kinatibuk-an sa basura)';
           _selectedPriority = 'Medium | (Kasamtangan)';
           _isAnonymous = false;
         });

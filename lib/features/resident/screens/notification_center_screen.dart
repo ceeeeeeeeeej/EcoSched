@@ -58,7 +58,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           IconButton(
             icon: const Icon(Icons.bug_report, size: 20, color: Colors.grey),
             tooltip: 'Send Test Notification',
-            onPressed: () => reminderService.triggerTestNotification(),
+            onPressed: () => reminderService.triggerInstantTest(),
           ),
           if (unreadCount > 0)
             TextButton(

@@ -80,6 +80,14 @@ class Translations {
           'Password recovery is currently managed by administrators.',
       'collector_incoming': 'Collector is Incoming! 🚚',
       'collection_starting_now': 'Collection Starting Now 🚛',
+      'reminder_highway': 'Reminder',
+      'reminder_highway_body': 'Place garbage only during your scheduled collection time.',
+      'instructions_title': 'Instructions',
+      'instruction_highway': 'Place garbage only during your scheduled collection time.',
+      'instruction_sealed': 'Use sealed bags',
+      'instruction_blocking': 'Avoid blocking the road',
+      'ecoscan': 'EcoScan',
+      'todays_schedule_header': 'TODAY\'S SCHEDULE',
     },
     'ceb': {
       'app_title': 'EcoSched',
@@ -164,6 +172,14 @@ class Translations {
           'Ang pagbawi sa password kasamtangang gidumala sa mga admin.',
       'collector_incoming': 'Ang Kolektor Padulong Na! 🚚',
       'collection_starting_now': 'Nagsugod Na Ang Koleksyon 🚛',
+      'reminder_highway': 'Pahibalo',
+      'reminder_highway_body': 'Ibutang ang basura sulod lamang sa oras sa imong naka-schedule nga koleksyon.',
+      'instructions_title': 'Mga Instruksyon',
+      'instruction_highway': 'Ibutang ang basura sulod lamang sa oras sa imong naka-schedule nga koleksyon.',
+      'instruction_sealed': 'Paggamit og sirado nga mga bag',
+      'instruction_blocking': 'Likayi ang pag-ali sa karsada',
+      'ecoscan': 'EcoScan',
+      'todays_schedule_header': 'ISKEDYUL KARONG ADLAWA',
     },
   };
 
@@ -183,6 +199,11 @@ class Translations {
   }
 
   static String getBilingualText(String englishText) {
+    // If it already looks like bilingual text (has a newline and parenthesis), don't translate again
+    if (englishText.contains('\n(')) {
+      return englishText;
+    }
+
     // Try to find a key that matches the English text
     String? key;
     _localizedValues['en']?.forEach((k, v) {
@@ -202,8 +223,8 @@ class Translations {
     if (englishText.contains('rescheduled')) {
       return '$englishText\n(Ang koleksyon gi-usab ang iskedyul.)';
     }
-    if (englishText.toLowerCase() == 'collection tomorrow') {
-      return '$englishText\n(Koleksyon Ugma)';
+    if (englishText.toLowerCase().contains('collection tomorrow')) {
+      return '$englishText\n(Ugma na ang koleksyon!)';
     }
     if (englishText.toLowerCase() == 'collection today!') {
       return '$englishText\n(Koleksyon Karong Adlawa!)';
@@ -214,28 +235,52 @@ class Translations {
     if (englishText.toLowerCase() == 'truck coming soon!') {
       return '$englishText\n(Ang Trak Moabot Na Sa Dili Madugay!)';
     }
-    if (englishText.toLowerCase() == 'new collection scheduled!') {
-      return '$englishText\n(Naka-iskedyul Na Ang Bag-ong Koleksyon!)';
+    if (englishText.toLowerCase().contains('new collection scheduled')) {
+      return '$englishText\n(Naka-iskedyul na ang bag-ong koleksyon!)';
+    }
+    if (englishText.toLowerCase().contains('designated area')) {
+      return '$englishText\n(Ibutang ang inyong basura sa saktong dapit.)';
+    }
+    if (englishText.toLowerCase().contains('collection time')) {
+      return '$englishText\n(Oras na para sa koleksyon!)';
     }
     if (englishText.toLowerCase().contains('starting now')) {
       return '$englishText\n(Nagsugod Na Ang Koleksyon karon.)';
+    }
+    if (englishText.toLowerCase().contains('prepare your garbage')) {
+      return '$englishText\n(Palihog andama ang inyong basura.)';
     }
     if (englishText.toLowerCase().contains('incoming') ||
         englishText.toLowerCase().contains('on the way')) {
       return '$englishText\n(Ang kolektor padulong na sa inyong dapit.)';
     }
 
-    if (englishText.contains('Prepare your garbage')) {
-      return '$englishText\n(Andama inyong mga basura! Ugma mao ang adlaw sa koleksyon.)';
+    if (englishText.contains('Prepare your garbage') || 
+        englishText.contains('prepare your garbage')) {
+      return '$englishText\n(Andama na inyong basura! Koleksyon na ugma.)';
     }
-    if (englishText.contains('Heads up! Your eco collection')) {
-      return '$englishText\n(Pahibalo! Ang inyong eco collection naka-iskedyul karong adlawa.)';
+    if (englishText.contains('Heads up!')) {
+      return '$englishText\n(Pahibalo! Adunay koleksyon nga umaabot.)';
     }
-    if (englishText.contains('Truck is now starting')) {
-      return '$englishText\n(Ang trak nagsugod na sa pagkolekta. Andama na inyong mga basura!)';
+    if (englishText.contains('Get ready!')) {
+      return '$englishText\n(Andam na! Hapit na ang koleksyon sa basura.)';
     }
     if (englishText.contains('scheduled in 2 hours')) {
       return '$englishText\n(Ang koleksyon naka-iskedyul sulod sa 2 ka oras.)';
+    }
+    
+    // Notification Fix Prompts
+    if (englishText == 'Fix Notifications') {
+      return '$englishText\n(Ayuhon ang mga Notipikasyon)';
+    }
+    if (englishText.contains('ensure notifications work 100%')) {
+      return '$englishText\n(Para maseguro nga 100% nga trabaho ang mga notipikasyon, palihug i-set ang EcoSched sa "Don\'t Optimize" sa imong battery settings.)';
+    }
+    if (englishText.contains('Allow Auto-launch')) {
+      return '$englishText\n(I-allow ang Auto-launch para sa EcoSched sa imong settings.)';
+    }
+    if (englishText.contains('Oppo survival guide')) {
+      return '$englishText\n(Giya para sa mga Oppo user aron dili ma-miss ang mga pahibalo.)';
     }
     if (englishText.contains('has been added')) {
       return '$englishText\n(Adunay bag-ong koleksyon nga gidugang.)';

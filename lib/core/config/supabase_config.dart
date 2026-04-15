@@ -35,6 +35,10 @@ class SupabaseConfig {
   static const String announcementsTable = 'announcements';
   static const String remindersTable = 'reminders';
   static const String areaSchedulesTable = 'area_schedules';
+  static const String aiScansTable = 'ai_scans';
+
+  // Storage bucket names
+  static const String scanImagesBucket = 'scan_images';
 
   // User roles
   static const String adminRole = 'admin';

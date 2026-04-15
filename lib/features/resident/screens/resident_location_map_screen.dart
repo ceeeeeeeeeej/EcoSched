@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'dart:ui' as ui;
@@ -16,13 +15,11 @@ import '../../../core/services/bin_service.dart';
 class ResidentLocationMapScreen extends StatefulWidget {
   final String? barangay;
   final String? purok;
-  final String? currentLocation;
 
   const ResidentLocationMapScreen({
     super.key,
     this.barangay,
     this.purok,
-    this.currentLocation,
   });
 
   @override
@@ -76,12 +73,14 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchCurrentLocation();
+    // Centering on barangay by default without waiting for GPS
+    _centerOnSelection();
+
     Future.microtask(() {
       if (mounted) {
         final auth = context.read<AuthService>();
-        final b = widget.barangay ?? auth.user?['barangay'] ?? 'victoria';
-        context.read<BinService>().loadBinsForArea(b);
+        final b = widget.barangay ?? auth.user?['barangay'];
+        if (b != null) context.read<BinService>().loadBinsForArea(b);
       }
     });
   }
@@ -148,10 +147,6 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     );
   }
 
-  bool get _hasManualDirections =>
-      widget.currentLocation != null &&
-      widget.currentLocation!.trim().isNotEmpty;
-
   bool get _isBarangaySupported {
     final barangay = widget.barangay?.trim().toLowerCase();
     if (barangay == null) return false;
@@ -163,10 +158,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
   bool get _hasCriticalLocationError =>
       _hasCoverageError || _hasBarangayMismatchError;
 
-  bool get _canContinue =>
-      _isBarangaySupported &&
-      !_hasCriticalLocationError &&
-      (_currentLatLng != null || _hasManualDirections);
+  bool get _canContinue => _isBarangaySupported && !_hasCriticalLocationError;
 
   String _mapBarangayToServiceArea(String? barangay) {
     final value = (barangay ?? '').trim().toLowerCase();
@@ -186,19 +178,17 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
 
     final barangay = widget.barangay ?? '';
     final purok = widget.purok ?? 'Purok 1';
-    final currentLocation = widget.currentLocation;
 
     auth.setResidentLocation(
       barangay: barangay,
       purok: purok,
-      currentLocation: currentLocation,
     );
 
     final serviceArea = _mapBarangayToServiceArea(barangay);
     pickupService.loadSchedulesForServiceArea(serviceArea);
 
-    NotificationService.subscribeToServiceAreaTopic(serviceArea,
-        userId: auth.residentId);
+    // NotificationService.subscribeToServiceAreaTopic(serviceArea,
+    //     userId: auth.residentId);
 
     Navigator.of(context).pushNamedAndRemoveUntil(
       AppRoutes.residentDashboard,
@@ -206,111 +196,23 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     );
   }
 
-  Future<void> _fetchCurrentLocation() async {
-    if (!_isBarangaySupported) return;
-    setState(() {
-      _isFetchingLocation = true;
-      _locationError = null;
-      _developerBypassActive = false;
-      _hasCoverageError = false;
-      _hasBarangayMismatchError = false;
-    });
-
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _locationError = 'Location services are disabled on this device.';
-          _isFetchingLocation = false;
-        });
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-
-      if (permission == LocationPermission.denied) {
-        setState(() {
-          _locationError = 'Location permission was denied.';
-          _isFetchingLocation = false;
-        });
-        return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _locationError =
-              'Location permission is permanently denied. Please enable it in system settings.';
-          _isFetchingLocation = false;
-        });
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      final detectedLatLng = LatLng(position.latitude, position.longitude);
-
-      if (!_isWithinServiceArea(detectedLatLng)) {
-        if (_isDeveloperOverrideEnabled &&
-            _isWithinDeveloperSandbox(detectedLatLng)) {
-          setState(() {
-            _currentLatLng = detectedLatLng;
-            _isFetchingLocation = false;
-            _developerBypassActive = true;
-            _locationError = null;
-            _hasCoverageError = false;
-            _hasBarangayMismatchError = false;
-          });
-          _animateToCurrentLocation();
-          return;
-        }
-
-        setState(() {
-          _currentLatLng = null;
-          _isFetchingLocation = false;
-          _developerBypassActive = false;
-          _locationError =
-              'Your detected location is currently outside EcoSched’s supported coverage (Victoria, Dayo-ay).';
-          _hasCoverageError = true;
-          _hasBarangayMismatchError = false;
-        });
-        return;
-      }
-
-      if (!_isWithinSelectedBarangay(detectedLatLng)) {
-        setState(() {
-          _currentLatLng = null;
-          _isFetchingLocation = false;
-          _developerBypassActive = false;
-          _locationError =
-              'Your detected location does not match your selected barangay. Please double-check your selection.';
-          _hasCoverageError = false;
-          _hasBarangayMismatchError = true;
-        });
-        return;
-      }
-
-      setState(() {
-        _currentLatLng = detectedLatLng;
-        _isFetchingLocation = false;
-        _developerBypassActive = false;
-        _locationError = null;
-        _hasCoverageError = false;
-        _hasBarangayMismatchError = false;
-      });
-
-      _animateToCurrentLocation();
-    } catch (e) {
-      setState(() {
-        _locationError = 'Failed to get your current location.';
-        _isFetchingLocation = false;
-        _developerBypassActive = false;
-      });
+  void _centerOnSelection() {
+    final b = widget.barangay?.toLowerCase() ?? '';
+    if (b.contains('victoria')) {
+      _currentLatLng = const LatLng(9.0783, 126.1987);
+    } else if (b.contains('dayo-an')) {
+      _currentLatLng = const LatLng(9.0821, 126.2010);
+    } else {
+      _currentLatLng = _fallbackCenter;
     }
+    if (_isMapReady) {
+      _mapController.move(_currentLatLng!, _mapZoom);
+    }
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    // Location tracking removed to ensure zero GPS dependency.
+    _centerOnSelection();
   }
 
   void _handleMapReady() {
@@ -424,15 +326,19 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                     final dynLat = bin['location_lat'] ?? bin['gps_lat'];
                     final dynLng = bin['location_lng'] ?? bin['gps_lng'];
                     if (dynLat == null || dynLng == null) return null;
-                    
-                    final lat = (dynLat is num) ? dynLat.toDouble() : double.tryParse(dynLat.toString()) ?? 0.0;
-                    final lng = (dynLng is num) ? dynLng.toDouble() : double.tryParse(dynLng.toString()) ?? 0.0;
-                    
+
+                    final lat = (dynLat is num)
+                        ? dynLat.toDouble()
+                        : double.tryParse(dynLat.toString()) ?? 0.0;
+                    final lng = (dynLng is num)
+                        ? dynLng.toDouble()
+                        : double.tryParse(dynLng.toString()) ?? 0.0;
+
                     if (lat == 0.0 && lng == 0.0) return null;
 
                     final fillLevel = bin['fill_level'] ?? 0;
                     final isFull = fillLevel >= 80;
-                    
+
                     return Marker(
                       width: 180,
                       height: 90,
@@ -444,7 +350,9 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 6),
                             decoration: BoxDecoration(
-                              color: isFull ? AppTheme.accentOrange : AppTheme.primaryGreen,
+                              color: isFull
+                                  ? AppTheme.accentOrange
+                                  : AppTheme.primaryGreen,
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: Colors.white, width: 2),
                               boxShadow: const [
@@ -472,11 +380,13 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                           ),
                           const CustomPaint(
                             size: Size(20, 10),
-                            painter: _TrianglePainter(),
+                            painter: _TrianglePainter(color: Colors.white),
                           ),
                           Icon(
                             isFull ? Icons.warning_rounded : Icons.delete,
-                            color: isFull ? AppTheme.accentOrange : AppTheme.primaryGreen,
+                            color: isFull
+                                ? AppTheme.accentOrange
+                                : AppTheme.primaryGreen,
                             size: 32,
                           ),
                         ],
@@ -1053,12 +963,7 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
     final colorScheme = theme.colorScheme;
     final locationStatus = !_isBarangaySupported
         ? 'Outside EcoSched coverage. Currently limited to Victoria and Dayo-an (Tago, Surigao del Sur).'
-        : _currentLatLng != null
-            ? 'GPS pin locked near ${_currentLatLng!.latitude.toStringAsFixed(4)}, '
-                '${_currentLatLng!.longitude.toStringAsFixed(4)}'
-            : _hasManualDirections
-                ? 'Using your additional directions'
-                : 'Waiting for an accurate location';
+        : 'Map center loaded for $barangayLabel.';
 
     return Container(
       width: double.infinity,
@@ -1104,13 +1009,6 @@ class _ResidentLocationMapScreenState extends State<ResidentLocationMapScreen> {
                   label: 'GPS pin ready',
                   background: AppTheme.primaryGreen.withOpacity(0.12),
                   foreground: AppTheme.primaryGreen,
-                ),
-              if (_hasManualDirections)
-                _buildStatusPill(
-                  icon: Icons.edit_location_alt,
-                  label: 'Manual directions added',
-                  background: Colors.blueGrey.withOpacity(0.12),
-                  foreground: Colors.blueGrey.shade700,
                 ),
               _buildStatusPill(
                 icon: Icons.map,
@@ -1300,7 +1198,7 @@ class _MapIconButton extends StatelessWidget {
 
 class _TrianglePainter extends CustomPainter {
   final Color color;
-  const _TrianglePainter({this.color = AppTheme.primaryGreen});
+  const _TrianglePainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -689,16 +689,20 @@ class PickupService extends ChangeNotifier {
           );
         }
 
-        // Resident: 2 hours before
+        // 2 hours before
         final hoursBeforeDate = date.subtract(const Duration(hours: 2));
         if (hoursBeforeDate.isAfter(now)) {
           final id =
               ((date.millisecondsSinceEpoch ~/ 1000) + type.hashCode + 2) &
                   0x7FFFFFFF;
+          final String prepareTitle = '♻️ Please prepare your garbage';
+          final String prepareBody =
+              'Collection in ${pickup['address']} is scheduled in 2 hours. Please ready your bins.';
+
           await NotificationService.scheduleNotification(
             id: id,
-            title: '🛣️ Put your garbage in designated area',
-            body: 'Your collection in ${pickup['address']} is scheduled in 2 hours. Get ready!',
+            title: Translations.getBilingualText(prepareTitle),
+            body: Translations.getBilingualText(prepareBody),
             scheduledDate: hoursBeforeDate,
             payload: 'schedule_hours_before_$id',
           );

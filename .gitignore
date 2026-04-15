@@ -43,3 +43,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ML Training Datasets (Skip for GitHub)
+ml_training/Biodegradable/
+ml_training/Non-biodegradable/
+ml_training/Recyclable/
+ml_training/test.jpg
+ml_training/*.png
+ml_training/*.jpg
+ml_training/*.jpeg

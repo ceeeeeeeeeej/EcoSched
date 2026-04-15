@@ -76,6 +76,7 @@ class Translations {
       'welcome_back_ecosched': 'Welcome back to EcoSched!',
       'login_failed': 'Login failed. Please try again.',
       'password_recovery_admin': 'Password recovery is currently managed by administrators.',
+      'prepare_garbage_msg': 'Please prepare your garbage',
     },
     'ceb': {
       'app_title': 'EcoSched',
@@ -150,6 +151,7 @@ class Translations {
       'welcome_back_ecosched': 'Maayong pagbalik sa EcoSched!',
       'login_failed': 'Napakyas ang pag-login. Palihog sulayi pag-usab.',
       'password_recovery_admin': 'Ang pagbawi sa password kasamtangang gidumala sa mga admin.',
+      'prepare_garbage_msg': 'Palihog andama ang inyong basura.',
     },
   };
 

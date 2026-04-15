@@ -20,6 +20,10 @@ class LatLngBounds {
 }
 
 class LocationConstants {
+  static const String appName = 'EcoSched Collector';
+  static const String defaultBarangay = 'Victoria';
+  static const String defaultPurok = 'M. homes';
+
   static const LatLngBounds victoriaBounds = LatLngBounds(
     minLatitude: 9.0000,
     maxLatitude: 9.0700,

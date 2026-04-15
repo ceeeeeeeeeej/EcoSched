@@ -14,7 +14,8 @@ import 'core/services/push_notification_service.dart';
 import 'core/services/special_collection_service.dart';
 import 'core/services/reminder_service.dart';
 import 'core/services/bin_service.dart';
-import 'core/services/background_service.dart';
+// import 'core/services/background_service.dart';
+import 'core/services/scan_service.dart';
 import 'core/config/supabase_config.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
@@ -77,13 +78,13 @@ class _UltraSafeBootState extends State<UltraSafeBoot> {
 
       /// 3️⃣ Initialize Notification Service
       debugPrint('🚀 FLASH: Setting up Notifications...');
-      await NotificationService.initialize()
-          .timeout(const Duration(seconds: 4));
+      await NotificationService.initialize();
+      await NotificationService.requestPermissions();
 
-      /// 4️⃣ Start Background Service
-      debugPrint('🚀 FLASH: Starting Background Service...');
-      await BackgroundService.initializeService()
-          .timeout(const Duration(seconds: 5));
+      // /// 4️⃣ Start Background Service (DISABLED)
+      // debugPrint('🚀 FLASH: Starting Background Service...');
+      // await BackgroundService.initializeService()
+      //     .timeout(const Duration(seconds: 5));
 
       debugPrint('🚀 FLASH: All systems green.');
 
@@ -206,6 +207,7 @@ class EcoSchedApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => FeedbackService()),
         ChangeNotifierProvider(create: (_) => SpecialCollectionService()),
         ChangeNotifierProvider(create: (_) => BinService()),
+        ChangeNotifierProvider(create: (_) => ScanService()),
         ChangeNotifierProxyProvider2<AuthService, PickupService,
             ReminderService>(
           create: (_) => ReminderService()..initialize(),

@@ -10,7 +10,7 @@ class AiChatService {
   AiChatService(String apiKey)
       : _apiKey = apiKey,
         _model = GenerativeModel(
-          model: 'gemini-2.0-flash',
+          model: 'gemini-2.5-flash',
           apiKey: apiKey,
           systemInstruction: Content.text(
             'You are EcoSched Assistant for Tago, Surigao del Sur, Philippines. '
@@ -70,7 +70,7 @@ class AiChatService {
   Future<String> sendQuickTextPrompt(String prompt,
       {String? overrideApiKey}) async {
     final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
     );
     final key = overrideApiKey ?? _apiKey;
     final response = await http.post(

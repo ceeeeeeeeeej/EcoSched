@@ -2,6 +2,8 @@ class AppConstants {
   // App Information
   static const String appName = 'EcoSched';
   static const String appVersion = '1.0.0';
+  static const String defaultBarangay = 'Victoria';
+  static const String defaultPurok = 'M. homes';
   
   // Role Types
   static const String collectorRole = 'collector';
@@ -14,7 +16,7 @@ class AppConstants {
   static const String notificationEndpoint = '/notifications';
   
   // AI Service API Key
-  static const String geminiApiKey = 'AIzaSyBGHeimgZ06zQnVw3Urbx7phvEgAAvsl3c';
+  static const String geminiApiKey = 'AIzaSyBk0YsIM8kE1MViPGO9XvsSrUZr1LUSGX8';
   
   // UI Constants
   static const double defaultPadding = 16.0;

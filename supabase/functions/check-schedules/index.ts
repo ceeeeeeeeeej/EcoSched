@@ -1,179 +1,123 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
 const ManilaTime = {
-  getCurrent: () => {
-    const now = new Date();
-    // Offset for Manila (UTC+8)
-    return new Date(now.getTime() + (8 * 60 * 60 * 1000));
-  },
-  toISODate: (date: Date) => date.toISOString().split('T')[0],
-  toHHMM: (date: Date) => {
-    const h = date.getUTCHours().toString().padStart(2, '0');
-    const m = date.getUTCMinutes().toString().padStart(2, '0');
-    return `${h}:${m}`;
-  }
+    now: () => {
+        const d = new Date();
+        const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+        return new Date(utc + (3600000 * 8));
+    },
+    toHHMM: (date: Date) => {
+        const h = String(date.getHours()).padStart(2, "0");
+        const m = String(date.getMinutes()).padStart(2, "0");
+        return `${h}:${m}`;
+    },
+    toISODate: (date: Date) => {
+        return date.toISOString().split("T")[0];
+    },
+    getDayName: (date: Date) => {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        return days[date.getDay()];
+    }
 };
 
-/**
- * Checks if a scheduled time (HH:mm) is within a 10-minute window (+/- 5 mins) of current time.
- */
-function isWithinWindow(schedTime: string, currentTime: string): boolean {
-  try {
-    const [sH, sM] = schedTime.split(':').map(Number);
-    const [cH, cM] = currentTime.split(':').map(Number);
-    
-    const schedTotalMinutes = sH * 60 + sM;
-    const currentTotalMinutes = cH * 60 + cM;
-    
-    const diff = Math.abs(currentTotalMinutes - schedTotalMinutes);
-    // 5 minute window before/after (total 10-11 mins)
-    return diff <= 5;
-  } catch (e) {
-    return false;
-  }
+function isWithinWindow(targetTime: string, currentTime: string, windowMinutes: number = 10) {
+    const [th, tm] = targetTime.split(":").map(Number);
+    const [ch, cm] = currentTime.split(":").map(Number);
+    const targetInMinutes = (th * 60) + tm;
+    const currentInMinutes = (ch * 60) + cm;
+    const diff = Math.abs(currentInMinutes - targetInMinutes);
+    return diff <= windowMinutes;
 }
 
-serve(async (_req) => {
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-  )
+const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-  try {
-    const nowManila = ManilaTime.getCurrent();
-    const todayStr = ManilaTime.toISODate(nowManila);
-    const timeStr = ManilaTime.toHHMM(nowManila);
-    
-    console.log(`⏰ Cron check started at ${timeStr} (Manila Time: ${nowManila.toISOString()})`);
+Deno.serve(async (req) => {
+    if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-    // --- 1. DAILY REMINDERS AT 18:00 (6:00 PM) ---
-    if (timeStr === "18:00") {
-      const tomorrow = new Date(nowManila.getTime() + 24 * 60 * 60 * 1000);
-      const tomorrowStr = ManilaTime.toISODate(tomorrow);
-      console.log(`🌙 6:00 PM - Processing reminders for tomorrow: ${tomorrowStr}`);
+    try {
+        const url = new URL(req.url);
+        const testBarangay = url.searchParams.get("test");
+        const delaySeconds = parseInt(url.searchParams.get("delay") || "0");
 
-      // Manual Schedules Reminder
-      const { data: regularSchedules } = await supabase
-        .from('collection_schedules')
-        .select('*')
-        .eq('status', 'scheduled')
-        .ilike('scheduled_date', `${tomorrowStr}%`);
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
 
-      if (regularSchedules) {
-        for (const s of regularSchedules) {
-          await supabase.functions.invoke('send-push-v2', {
-            body: {
-              title: '📅 Collection Reminder',
-              body: `Reminder: Waste collection in ${s.zone} is scheduled for tomorrow.`,
-              type: 'reminder',
-              barangay: s.zone
-            }
-          });
+        const nowManila = ManilaTime.now();
+        const timeStr = ManilaTime.toHHMM(nowManila);
+        const todayStr = ManilaTime.toISODate(nowManila);
+        const dayName = ManilaTime.getDayName(nowManila);
+
+        // 🧪 TEST MODE
+        if (testBarangay) {
+            if (delaySeconds > 0) await new Promise(r => setTimeout(r, Math.min(delaySeconds, 50) * 1000));
+            await processAlert(supabase, testBarangay, timeStr, todayStr, `test_${Date.now()}`, "🔔 BILINGUAL TEST | PASALIG NGA TEST", `Success! Bilingual notifications are live for ${testBarangay}. | Kalamposan! Ang bilingual nga pahibalo buhi na para sa ${testBarangay}.`);
+            return new Response(JSON.stringify({ success: true, mode: "test" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-      }
-    }
 
-    // --- 2. "STARTING NOW" ALERTS (ROBUST WINDOW) ---
-    
-    // A. Manual/One-time Schedules
-    const { data: manualSchedules } = await supabase
-      .from('collection_schedules')
-      .select('*')
-      .eq('status', 'scheduled')
-      .ilike('scheduled_date', `${todayStr}%`);
+        // --- PHASE 1: 6:00 PM (TOMORROW REMINDER) ---
+        if (isWithinWindow("18:00", timeStr)) {
+            const tomorrow = new Date(nowManila.getTime() + (24 * 60 * 60 * 1000));
+            const tomStr = ManilaTime.toISODate(tomorrow);
+            const tomDay = ManilaTime.getDayName(tomorrow);
 
-    if (manualSchedules) {
-      for (const s of manualSchedules) {
-        // Extract time from ISO string or use scheduled_time column if it exists
-        // Here we assume the date object contains the time info
-        const sTime = ManilaTime.toHHMM(new Date(new Date(s.scheduled_date).getTime() + (8 * 60 * 60 * 1000)));
-        
-        if (isWithinWindow(sTime, timeStr)) {
-          await processAlert(supabase, s.zone, sTime, todayStr, `manual_${s.id}`);
+            const title = "🗓️ Collection Tomorrow | Koleksyon Ugma";
+            const body = "Reminder: Waste collection in Victoria is scheduled for tomorrow. | Pahibalo: Adunay pagkolekta sa basura sa Victoria ugma sa buntag.";
+
+            // Specific
+            const { data: spec } = await supabase.from("collection_schedules").select("*").eq("status", "Scheduled").ilike("scheduled_date", `${tomStr}%`);
+            if (spec) for (const s of spec) await processAlert(supabase, normalize(s.zone), "18:00", todayStr, `tom_${s.id}`, title, body);
+
+            // Recurring
+            const { data: rec } = await supabase.from("area_schedules").select("*").eq("is_active", true).contains("days", [tomDay]);
+            if (rec) for (const r of rec) await processAlert(supabase, normalize(r.area), "18:00", todayStr, `tom_rec_${r.id}`, title, `Heads up! Your regular ${capitalize(tomDay)} collection is tomorrow. | Pahibalo! Ang imong regular nga koleksyon karong ${capitalize(tomDay)} kay ugma na.`);
         }
-      }
-    }
 
-    // B. Recurring Schedules (area_schedules)
-    const dayName = nowManila.toLocaleString('en-US', { weekday: 'long', timeZone: 'UTC' }).toLowerCase();
-    
-    const { data: recurringSchedules } = await supabase
-      .from('area_schedules')
-      .select('*')
-      .contains('days', [dayName]);
+        // --- PHASE 2: 6:00 AM (PREPARATION) ---
+        if (isWithinWindow("06:00", timeStr)) {
+            const title = "🚛 Preparation Alert | Alerto sa Pagpangandam";
+            const body = "Preparation time! Please move your garbage to the designated area. | Panahon na sa pagpangandam! Palihog ibutang ang inyong basura sa designated area.";
 
-    if (recurringSchedules) {
-      for (const s of recurringSchedules) {
-        if (s.time && isWithinWindow(s.time, timeStr)) {
-          await processAlert(supabase, s.area, s.time, todayStr, `recurring_${s.id}`);
+            // Specific
+            const { data: spec } = await supabase.from("collection_schedules").select("*").eq("status", "Scheduled").ilike("scheduled_date", `${todayStr}%`);
+            if (spec) for (const s of spec) await processAlert(supabase, normalize(s.zone), "06:00", todayStr, `prep_${s.id}`, title, body);
+
+            // Recurring
+            const { data: rec } = await supabase.from("area_schedules").select("*").eq("is_active", true).contains("days", [dayName]);
+            if (rec) for (const r of rec) await processAlert(supabase, normalize(r.area), "06:00", todayStr, `prep_rec_${r.id}`, title, body);
         }
-      }
-    }
 
-    return new Response(JSON.stringify({ success: true, processed_at: timeStr }), {
-      headers: { 'Content-Type': 'application/json' },
-    })
-  } catch (err) {
-    const error = err as Error;
-    console.error('💥 Error in check-schedules:', error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-})
+        // --- PHASE 3: 8:00 AM (COLLECTION STARTING) ---
+        if (isWithinWindow("08:00", timeStr)) {
+            const title = "🔔 Collection starting now! | Koleksyon magsugod na!";
+            const body = "The truck is starting its rounds! Please ensure your garbage is ready. | Ang truck nagsugod na sa koleksyon! Palihog siguroha nga andam na ang inyong basura.";
 
-/**
- * Handles the logic for sending a "Starting Now" alert and recording it in history.
- */
-async function processAlert(supabase: any, barangay: string, schedTime: string, dateStr: string, uniqueRef: string) {
-  // Deduplication check: Have we sent this specific alert already today?
-  // We use the notification message + barangay + date + TIME to check.
-  const dRef = `starting_now_${barangay}_${dateStr}_${schedTime}`;
-  
-  const { data: existing } = await supabase
-    .from('user_notifications')
-    .select('id')
-    .eq('barangay', barangay)
-    .eq('metadata->>dedup_key', dRef)
-    .limit(1);
+            // Specific
+            const { data: spec } = await supabase.from("collection_schedules").select("*").eq("status", "Scheduled").ilike("scheduled_date", `${todayStr}%`);
+            if (spec) for (const s of spec) await processAlert(supabase, normalize(s.zone), "08:00", todayStr, `start_${s.id}`, title, body);
 
-  if (existing && existing.length > 0) {
-    console.log(`ℹ️ Skipping duplicate alert for ${barangay} at ${schedTime} (ID: ${uniqueRef}). Already sent.`);
-    return;
-  }
-
-  console.log(`🚀 Triggering alert for ${barangay} scheduled at ${schedTime} (Reference: ${uniqueRef})`);
-
-  // 1. Find Residents
-  const { data: residents } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('role', 'resident')
-    .ilike('barangay', `%${barangay}%`);
-
-  if (residents && residents.length > 0) {
-    for (const r of residents) {
-      // 2. Send Push
-      await supabase.functions.invoke('send-push-v2', {
-        body: {
-          resident_id: r.id,
-          title: '🚛 Collection Starting Now',
-          body: `Waste collection in ${barangay} is starting now! (Scheduled at ${schedTime})`,
-          type: 'alert'
+            // Recurring
+            const { data: rec } = await supabase.from("area_schedules").select("*").eq("is_active", true).contains("days", [dayName]);
+            if (rec) for (const r of rec) await processAlert(supabase, normalize(r.area), "08:00", todayStr, `start_rec_${r.id}`, title, body);
         }
-      });
 
-      // 3. Log to History
-      await supabase.from('user_notifications').insert({
-        user_id: r.id,
-        title: '🚛 Collection Starting Now',
-        message: `Waste collection in ${barangay} is starting now! (Scheduled at ${schedTime})`,
-        type: 'alert',
-        barangay: barangay,
-        metadata: { dedup_key: dRef, sched_time: schedTime, source: uniqueRef }
-      });
+        return new Response(JSON.stringify({ success: true, processed_at: timeStr }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-  }
+});
+
+function normalize(b: string) { return b.toLowerCase().includes('victoria') ? 'Victoria' : b; }
+function capitalize(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+async function processAlert(supabase: any, barangay: string, schedTime: string, dateStr: string, uniqueRef: string, title: string, body: string) {
+    const dRef = `${uniqueRef}_${barangay}_${dateStr}_${schedTime}`;
+    const { data: existing } = await supabase.from("user_notifications").select("id").eq("barangay", barangay).eq("metadata->>dedup_key", dRef).limit(1);
+    if (existing && existing.length > 0 && !uniqueRef.startsWith("test")) return;
+    await supabase.functions.invoke("send-push-v2", { body: { title, body, type: "alert", barangay, collapse_key: `schedule_${barangay}` } });
+    await supabase.from("user_notifications").insert({ title, message: body, type: "alert", barangay, metadata: { dedup_key: dRef } });
 }

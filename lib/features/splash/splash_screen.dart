@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
-import 'package:geolocator/geolocator.dart';
 
 import '../../core/services/auth_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -62,21 +61,25 @@ class _SplashScreenState extends State<SplashScreen>
       if (!mounted || _isNavigating) return;
 
       if (auth.isAuthCheckComplete) {
-        if (auth.isAuthenticated) {
-          if (auth.hasBarangaySelected) {
+        if (auth.isAuthenticated && auth.isCollector()) {
+          if (kDebugMode) {
+            print('🚀 FLASH: Collector profile found, auto-jumping to Dashboard.');
+          }
+          _isNavigating = true;
+          auth.goHome(context);
+        } else {
+          // AUTO-JUMP for Residents if they already have a profile
+          final hasProfile = auth.user?['barangay'] != null;
+          if (hasProfile) {
             if (kDebugMode) {
-              print('🚀 FLASH: Resident profile found, auto-jumping to Dashboard.');
+              print('🚀 FLASH: Resident profile found (${auth.user?['barangay']}), auto-jumping to Dashboard.');
             }
             _isNavigating = true;
             auth.goHome(context);
           } else {
             if (kDebugMode) {
-              print('🚀 FLASH: Resident authenticated but no location selected. Staying on Splash.');
+              print('🚀 FLASH: New Resident or no profile. Staying on Splash to pick Barangay.');
             }
-          }
-        } else {
-          if (kDebugMode) {
-            print('🚀 FLASH: No session, staying on Splash.');
           }
         }
       }
@@ -101,67 +104,7 @@ class _SplashScreenState extends State<SplashScreen>
     setState(() => _isVerifying = true);
 
     try {
-      // 1. Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (mounted) {
-          _showErrorSnackBar(context,
-              'Location services are disabled. Please enable them to proceed.');
-        }
-        setState(() => _isVerifying = false);
-        return;
-      }
-
-      // 2. Check/Request permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (mounted) {
-            _showErrorSnackBar(context,
-                'Location permissions are denied. We need your location to verify your barangay.');
-          }
-          setState(() => _isVerifying = false);
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          _showErrorSnackBar(context,
-              'Location permissions are permanently denied. Please enable them in settings.');
-        }
-        setState(() => _isVerifying = false);
-        return;
-      }
-
-      // 3. Get current position
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 20), // Increased from 10s
-      );
-
-      // 4. Verify against bounds
-      final isInside = LocationConstants.isWithinBarangay(
-              barangay, position.latitude, position.longitude);
-
-      if (!isInside) {
-        if (mounted) {
-          String message = '';
-          if (barangay.toLowerCase().contains('dayo')) {
-            message =
-                'You are not currently located in Barangay Dayo-an. This selection is only available for residents within Barangay Dayo-an.';
-          } else if (barangay.toLowerCase().contains('victoria')) {
-            message =
-                'You are not currently located in Barangay Victoria. This selection is only available for residents within Barangay Victoria.';
-          }
-          _showAccessDeniedDialog(context, message);
-        }
-        setState(() => _isVerifying = false);
-        return;
-      }
-
-        // Pass to Registration Screen after Geofencing success
+        // Pass to Registration Screen after Manual selection (GPS VERIFICATION REMOVED)
         if (mounted) {
           setState(() {
             _selectedBarangayName = barangay;
@@ -170,18 +113,17 @@ class _SplashScreenState extends State<SplashScreen>
           });
         }
 
-        // Wait for welcome animation or short delay
-        await Future.delayed(const Duration(milliseconds: 1500));
+        // Wait for welcome animation
+        await Future.delayed(const Duration(milliseconds: 1000));
 
         if (mounted) {
           final auth = Provider.of<AuthService>(context, listen: false);
-          final hasProfile = auth.user?['barangay'] != null && 
-                            auth.user?['purok'] != null;
           
-          if (hasProfile && auth.user?['barangay'] == barangay) {
-            // Already registered for this barangay, go home
+          // Check if user is already registered for this barangay
+          if (auth.user?['barangay'] == barangay) {
             auth.goHome(context);
           } else {
+            // New selection, go to registration
             Navigator.of(context).pushReplacementNamed(
               '/resident/registration',
               arguments: barangay,
@@ -189,10 +131,10 @@ class _SplashScreenState extends State<SplashScreen>
           }
         }
     } catch (e) {
-      if (kDebugMode) print('Location verification error: $e');
+      if (kDebugMode) print('Selection error: $e');
       if (mounted) {
         _showErrorSnackBar(
-            context, 'Failed to verify location. Please try again.');
+            context, 'Failed to select barangay. Please try again.');
       }
     } finally {
       if (mounted) {
@@ -207,28 +149,6 @@ class _SplashScreenState extends State<SplashScreen>
         content: Text(message),
         backgroundColor: Colors.redAccent,
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _showAccessDeniedDialog(BuildContext context, String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.location_off_rounded, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Access Denied'),
-          ],
-        ),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
       ),
     );
   }

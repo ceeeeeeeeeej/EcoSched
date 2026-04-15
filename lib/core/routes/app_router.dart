@@ -79,11 +79,9 @@ class AppRouter {
         final args = settings.arguments as Map<String, dynamic>?;
         final barangay = args?['barangay'] as String?;
         final purok = args?['purok'] as String?;
-        final currentLocation = args?['currentLocation'] as String?;
         return ResidentLocationMapScreen(
           barangay: barangay,
           purok: purok,
-          currentLocation: currentLocation,
         );
       case AppRoutes.welcomeAnimation:
         final barangay = settings.arguments as String? ?? 'Victoria';
@@ -141,4 +139,3 @@ extension NavigationExtensions on BuildContext {
     }
   }
 }
-

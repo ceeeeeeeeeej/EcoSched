@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart' as fln;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/localization/translations.dart';
@@ -23,6 +26,7 @@ import 'feedback_screen.dart';
 import 'resident_location_map_screen.dart';
 import 'special_collection_list_screen.dart';
 import '../../../core/routes/app_router.dart';
+import '../../../core/services/notification_service.dart';
 
 class ResidentDashboardScreen extends StatefulWidget {
   final int initialNavIndex;
@@ -64,7 +68,7 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
         final serviceArea = user?['serviceArea'] ??
             user?['barangay'] ??
             user?['location'] ??
-            'victoria';
+            '';
         final String effectiveArea =
             serviceArea.toString().split(',')[0].trim();
 
@@ -127,7 +131,7 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
                 child: GNav(
                   gap: 10,
                   activeColor: Colors.white,
-                  iconSize: 22,
+                  iconSize: 26,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   duration: const Duration(milliseconds: 400),
@@ -144,8 +148,8 @@ class _ResidentDashboardScreenState extends State<ResidentDashboardScreen> {
                       text: context.tr('feedback'),
                     ),
                     GButton(
-                      icon: Icons.camera_rounded,
-                      text: context.tr('scan'),
+                      icon: Icons.qr_code_scanner_rounded,
+                      text: context.tr('ecoscan'),
                     ),
                     GButton(
                       icon: Icons.local_shipping_rounded,
@@ -425,13 +429,13 @@ class _HomePage extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            tooltip: context.tr('bin_location'),
-            icon: const Icon(Icons.location_on_rounded),
+            tooltip: 'Change Barangay',
+            icon: const Icon(Icons.logout_rounded, color: Colors.white),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const ResidentLocationMapScreen(),
-                ),
+              Provider.of<AuthService>(context, listen: false).signOut();
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                AppRoutes.splash,
+                (route) => false,
               );
             },
           ),
@@ -466,10 +470,40 @@ class _HomePage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Only upcoming collection card is shown to simplify UI
-                        _buildUpcomingCollectionCard(context, responsive),
+                        // 2. Reminder Card
+                        _buildReminderCard(context, responsive),
                         SizedBox(height: responsive.spacing(24)),
-                        // assigned schedule section removed per request
+
+                        // 2. Instructions Card
+                        _buildInstructionsCard(context, responsive),
+                        SizedBox(height: responsive.spacing(24)),
+
+                        // 3. Today's Schedule Section
+                        Consumer<PickupService>(
+                          builder: (context, pickupService, _) {
+                            final auth = Provider.of<AuthService>(context, listen: false);
+                            final serviceArea = auth.user?['barangay'] ?? '';
+                            final nextCollection = pickupService.getNextCollection(serviceArea);
+                            
+                            bool isToday = false;
+                            if (nextCollection != null) {
+                              final date = nextCollection['date'] as DateTime;
+                              final now = DateTime.now();
+                              isToday = date.year == now.year && date.month == now.month && date.day == now.day;
+                            }
+                            
+                            final headerText = isToday ? "TODAY'S SCHEDULE" : "UPCOMING SCHEDULE";
+                            
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildSectionHeader(context, headerText),
+                                SizedBox(height: responsive.spacing(12)),
+                                _buildTodayScheduleCard(context, responsive),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -482,7 +516,254 @@ class _HomePage extends StatelessWidget {
     );
   }
 
-  // Assigned schedule and empty state methods removed to simplify home screen
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 24,
+          decoration: BoxDecoration(
+            color: AppTheme.primaryGreen,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReminderCard(BuildContext context, Responsive responsive) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E8), // Peach/Light Orange background
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.orange, size: 28),
+              const SizedBox(width: 12),
+              Text(
+                context.tr('reminder_highway'),
+                style: const TextStyle(
+                  color: Color(0xFF8A4D00),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            context.tr('reminder_highway_body'),
+            style: const TextStyle(
+              color: Color(0xFF8A4D00),
+              fontSize: 15,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionsCard(BuildContext context, Responsive responsive) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.push_pin_rounded,
+                  color: AppTheme.primaryGreen, size: 24),
+              const SizedBox(width: 12),
+              Text(
+                context.tr('instructions_title'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildBulletPoint(context, context.tr('instruction_highway')),
+          _buildBulletPoint(context, context.tr('instruction_sealed')),
+          _buildBulletPoint(context, context.tr('instruction_blocking')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBulletPoint(BuildContext context, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Icon(Icons.circle, size: 6, color: AppTheme.primaryGreen),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTodayScheduleCard(BuildContext context, Responsive responsive) {
+    return Consumer<PickupService>(
+      builder: (context, pickupService, _) {
+        final auth = Provider.of<AuthService>(context, listen: false);
+        final serviceArea = auth.user?['barangay'] ?? '';
+        final nextCollection = pickupService.getNextCollection(serviceArea);
+
+        if (nextCollection == null) {
+          return GlassmorphicContainer(
+            padding: const EdgeInsets.all(32),
+            child: Center(
+              child: Text(
+                context.tr('no_collection_today'),
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ),
+          );
+        }
+
+        final date = nextCollection['date'] as DateTime;
+        final now = DateTime.now();
+        final isToday = date.year == now.year && date.month == now.month && date.day == now.day;
+        
+        final dateStr = DateFormat('EEEE, MMM d').format(date);
+        final timeStr = nextCollection['time'] ?? '08:00:00';
+
+        return AppAnimations.fadeInSlideUp(
+          child: GlassmorphicContainer(
+            opacity: 0.25,
+            blur: 20,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.circle_outlined,
+                            color: Colors.white70, size: 28),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Collection: ${nextCollection['address'] ?? 'Village'}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            isToday ? 'Status: Today' : 'Status: Upcoming',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today_rounded,
+                              color: AppTheme.primaryGreen, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            dateStr,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Icon(Icons.access_time_filled_rounded,
+                              color: Colors.orange, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            timeStr,
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   String _formatAssignedDate(dynamic rawDate) {
     if (rawDate is DateTime) {
@@ -858,7 +1139,7 @@ class _NotificationsPageState extends State<_NotificationsPage> {
                           fontSize: 20 * responsive.fontSizeMultiplier,
                         ),
                       ),
-                      SizedBox(height: responsive.spacing(12)),
+                      SizedBox(height: responsive.spacing(24)),
 
                       if (allNotifications.isEmpty)
                         _buildEmptyAlertsState(context, responsive)

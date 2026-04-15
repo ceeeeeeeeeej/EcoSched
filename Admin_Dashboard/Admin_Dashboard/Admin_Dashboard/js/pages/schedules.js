@@ -1495,6 +1495,19 @@ function formatDisplayTime(date) {
     }).format(date);
 }
 
+// Helper to convert "HH:mm" military string to "h:mm AM/PM"
+function formatMilitaryTo12Hour(timeStr) {
+    if (!timeStr) return 'Scheduled';
+    try {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const h12 = hours % 12 || 12;
+        return `${h12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+    } catch (e) {
+        return timeStr;
+    }
+}
+
 function isSameDate(dateA, dateB) {
     return dateA.getFullYear() === dateB.getFullYear() &&
         dateA.getMonth() === dateB.getMonth() &&
@@ -1560,51 +1573,58 @@ async function notifyUsersOfScheduleAction(schedule, type) {
         if (type === 'reschedule') {
             const dateObj = new Date(schedule.scheduledDate);
             const dateStr = dateObj.toLocaleDateString();
-            const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const area = capitalize(schedule.area);
+            const timeStr = formatDisplayTime(dateObj);
+            const area = schedule.area.toLowerCase().includes('victoria') ? 'Victoria' : capitalize(schedule.area);
             message = `Your collection for ${area} is now on ${dateStr} at ${timeStr}.${schedule.rescheduledReason ? ` Reason: ${schedule.rescheduledReason}` : ''} \n\n Ang imong pagkolekta sa ${area} gibalhin sa ${dateStr}, ${timeStr}.${schedule.rescheduledReason ? ` Rason: ${schedule.rescheduledReason}` : ''}`;
         } else if (type === 'creation') {
             const dateObj = new Date(schedule.scheduledDate);
             const dateStr = dateObj.toLocaleDateString();
-            const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const area = capitalize(schedule.area);
+            const timeStr = formatDisplayTime(dateObj);
+            const area = schedule.area.toLowerCase().includes('victoria') ? 'Victoria' : capitalize(schedule.area);
             title = ' New Collection Scheduled | Bag-ong Eskedyul';
             message = `A new collection has been scheduled for ${area} on ${dateStr} at ${timeStr}. \n\n Adunay bag-ong pagkolekta sa ${area} sa ${dateStr}, ${timeStr}.`;
         } else if (type === 'fixed') {
             const daysStr = Array.isArray(schedule.days) ? schedule.days.map(d => capitalize(d.slice(0, 3))).join(', ') : 'weekly';
-            const timeStr = schedule.time ? schedule.time.slice(0, 5) : 'Scheduled';
-            const area = capitalize(schedule.area);
+            const timeStr = formatMilitaryTo12Hour(schedule.time);
+            const area = schedule.area.toLowerCase().includes('victoria') ? 'Victoria' : capitalize(schedule.area);
             title = ' New Regular Schedule | Bag-ong Eskedyul';
-            message = `A new weekly collection has been set for ${area}: Every ${daysStr} at ${timeStr}. \n\n Adunay bag-ong semana nga pagkolekta sa ${area}: Matag ${daysStr}, ${timeStr}.`;
+            message = `A new weekly collection has been set for ${area} every ${daysStr} at ${timeStr}. \n\n Adunay bag-ong semana nga pagkolekta sa ${area} matag ${daysStr}, ${timeStr}.`;
         } else if (type === 'deletion' || type === 'deletion-bulk') {
-            const area = capitalize(schedule.area);
+            const area = schedule.area.toLowerCase().includes('victoria') ? 'Victoria' : capitalize(schedule.area);
             title = ' Schedule Cancelled | Gikanselar ang Eskedyul';
             message = `The collection schedule for ${area} has been cancelled or discontinued. Please check your app for the next available schedule. \n\n Ang eskedyul sa pagkolekta sa ${area} gikanselar. Palihog tan-awa ang app para sa sunod nga eskedyul.`;
         }
 
         if (!message) return;
 
-        // 4. Send in parallel (both in-app and push)
-        const promises = recipients.map(async (user) => {
-            // In-app notification
-            // Include barangay so the mobile Realtime listener (filtered on barangay) can pick it up
+        // 4. Create individual DB records (silently, skipping push)
+        const dbPromises = recipients.map(async (user) => {
             const userBarangay = (user.location || user.barangay || targetAreaString).toLowerCase();
-            const inAppPromise = dbService.createNotification({
+            return dbService.createNotification({
                 userId: user.id,
                 barangay: userBarangay,
                 title: title,
                 message: message,
                 type: 'alert',
-                priority: 'high'
+                priority: 'high',
+                skipPush: true // 🛡️ DB ONLY - Prevent individual pushes
             });
-
-            //  The database trigger on the 'user_notifications' table will 
-            // automatically handle the push delivery to the appropriate devices.
-            return Promise.all([inAppPromise]);
         });
 
-        await Promise.all(promises);
-        console.log(` Notifications sent to ${recipients.length} users for ${type} action`);
+        await Promise.all(dbPromises);
+
+        // 5. Send ONE single broadcast push for the whole action
+        const finalBarangay = targetAreaString.includes('victoria') ? 'Victoria' : capitalize(targetAreaString);
+        await dbService.createNotification({
+            barangay: finalBarangay,
+            title: title,
+            message: message,
+            type: 'alert',
+            priority: 'high',
+            skipPush: false // 🚀 Trigger ONE push for the area
+        });
+
+        console.log(` Notifications sent to ${recipients.length} users with consolidated push.`);
 
     } catch (err) {
         console.error(' Error sending schedule notifications:', err);

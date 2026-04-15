@@ -105,12 +105,16 @@ class ReminderService extends ChangeNotifier {
     _rescheduleSubscription = _supabase
         .from(SupabaseConfig.collectionSchedulesTable)
         .stream(primaryKey: ['id'])
-        .eq('zone', serviceArea)
-        .eq('is_rescheduled', true)
         .listen(
           (data) async {
+            // Filter locally to avoid SupabaseStreamBuilder.eq issues in current SDK version
+            final filteredData = data.where((item) => 
+              item['zone'] == serviceArea && 
+              item['is_rescheduled'] == true
+            ).toList();
+
             if (!_rescheduleBaselineReady) {
-              for (final doc in data) {
+              for (final doc in filteredData) {
                 final updatedAt = doc['updated_at'];
                 if (updatedAt is String) {
                   final parsedDate = DateTime.parse(updatedAt);
@@ -122,7 +126,7 @@ class ReminderService extends ChangeNotifier {
               return;
             }
 
-            for (final doc in data) {
+            for (final doc in filteredData) {
               final updatedAt = doc['updated_at'];
               final int updatedSeconds = updatedAt is String
                   ? DateTime.parse(updatedAt).millisecondsSinceEpoch ~/ 1000

@@ -99,8 +99,8 @@ class _LandingPageScreenState extends State<LandingPageScreen>
 
     final serviceArea = _mapBarangayToServiceArea(barangay);
     pickupService.loadSchedulesForServiceArea(serviceArea);
-    NotificationService.subscribeToServiceAreaTopic(serviceArea,
-        userId: auth.residentId);
+    // NotificationService.subscribeToServiceAreaTopic(serviceArea,
+    //     userId: auth.residentId);
 
     Navigator.of(context).pushNamedAndRemoveUntil(
       AppRoutes.residentDashboard,
@@ -111,11 +111,11 @@ class _LandingPageScreenState extends State<LandingPageScreen>
   String _mapBarangayToServiceArea(String barangay) {
     final value = barangay.trim().toLowerCase();
     if (value.contains('victoria')) return 'victoria';
-    if (value.contains('dayo-an') || value.contains('dayo-ay'))
+    if (value.contains('dayo-an') || value.contains('dayo-ay')) {
       return 'dayo-an';
+    }
     return 'victoria';
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -141,69 +141,71 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                                 borderRadius: BorderRadius.circular(20),
                               ),
                             ),
-                                icon: const Icon(Icons.language, size: 18),
-                                label: Text(
-                                  lang.isBisaya ? 'English' : 'Bisaya',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                onPressed: () => lang.toggleLanguage(),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      SingleChildScrollView(
-                        padding: EdgeInsets.all(AppTheme.spacing8),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(height: 20),
+                            icon: const Icon(Icons.language, size: 18),
+                            label: Text(
+                              lang.isBisaya ? 'English' : 'Bisaya',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () => lang.toggleLanguage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  SingleChildScrollView(
+                    padding: EdgeInsets.all(AppTheme.spacing8),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 20),
 
-                            // App Logo and Title
-                            FadeTransition(
-                              opacity: _fadeAnimation,
-                              child: SlideTransition(
-                                position: _slideAnimation,
-                                child: Column(
-                                  children: [
-                                    AnimatedBuilder(
-                                      animation: _pulseAnimation,
-                                      builder: (context, child) {
-                                        return Transform.scale(
-                                          scale: _pulseAnimation.value,
-                                          child: NatureHeroAnimation(
-                                            tag: 'landing_logo',
-                                            child: EcoPulseAnimation(
-                                              isActive: true,
-                                              child: NatureRippleEffect(
-                                                rippleColor: AppTheme.primaryGreen,
-                                                child: Container(
-                                                  width: 120,
-                                                  height: 120,
-                                                  decoration: BoxDecoration(
-                                                    gradient: LinearGradient(
-                                                      colors: AppTheme.primaryGradient,
-                                                      begin: Alignment.topLeft,
-                                                      end: Alignment.bottomRight,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(30),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: AppTheme.primaryGreen
-                                                            .withOpacity(0.4),
-                                                        blurRadius: 30,
-                                                        offset: const Offset(0, 15),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: Image.asset(
-                                                    'assets/images/ecosched_logo.png',
-                                                    width: 80,
-                                                    height: 80,
-                                                    fit: BoxFit.contain,
-                                                  ),
+                        // App Logo and Title
+                        FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Column(
+                              children: [
+                                AnimatedBuilder(
+                                  animation: _pulseAnimation,
+                                  builder: (context, child) {
+                                    return Transform.scale(
+                                      scale: _pulseAnimation.value,
+                                      child: NatureHeroAnimation(
+                                        tag: 'landing_logo',
+                                        child: EcoPulseAnimation(
+                                          isActive: true,
+                                          child: NatureRippleEffect(
+                                            rippleColor: AppTheme.primaryGreen,
+                                            child: Container(
+                                              width: 120,
+                                              height: 120,
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  colors:
+                                                      AppTheme.primaryGradient,
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
                                                 ),
+                                                borderRadius:
+                                                    BorderRadius.circular(30),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: AppTheme.primaryGreen
+                                                        .withOpacity(0.4),
+                                                    blurRadius: 30,
+                                                    offset: const Offset(0, 15),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Image.asset(
+                                                'assets/images/ecosched_logo.png',
+                                                width: 80,
+                                                height: 80,
+                                                fit: BoxFit.contain,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -229,7 +231,8 @@ class _LandingPageScreenState extends State<LandingPageScreen>
                                 const SizedBox(height: 8),
                                 EcoShimmerEffect(
                                   isActive: true,
-                                  baseColor: AppTheme.textLight.withOpacity(0.3),
+                                  baseColor:
+                                      AppTheme.textLight.withOpacity(0.3),
                                   highlightColor: AppTheme.textLight,
                                   child: Text(
                                     context.tr('select_location_begin'),

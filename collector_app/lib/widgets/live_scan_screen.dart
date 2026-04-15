@@ -8,8 +8,10 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:flutter_markdown/flutter_markdown.dart'; // Ensure this is available or use Text
 import '../core/services/ai_chat_service.dart';
+import '../core/services/external_ai_service.dart';
 import '../core/error/error_handler.dart';
 import '../core/theme/app_theme.dart';
+import 'package:flutter/foundation.dart';
 
 class LiveScanResult {
   final Uint8List imageBytes;
@@ -32,12 +34,17 @@ class _LiveScanScreenState extends State<LiveScanScreen> {
   String? _lastReply;
   Uint8List? _capturedImageBytes;
   late final AiChatService _chatService;
+  late final ExternalAiService _externalAiService;
   bool _showTips = true;
+  
+  // Internal scan mode (Default to 1: Custom AI)
+  final int _scanMode = 1;
 
   @override
   void initState() {
     super.initState();
     _chatService = AiChatService(widget.apiKey);
+    _externalAiService = ExternalAiService();
     _initFuture = _initCamera();
   }
 
@@ -86,13 +93,56 @@ class _LiveScanScreenState extends State<LiveScanScreen> {
       final Uint8List bytes = await file.readAsBytes();
       if (!mounted) return;
       
-      setState(() {
-        _capturedImageBytes = bytes;
-        _lastReply = null;
-        _showTips = false; // Hide tips when showing result
-      });
+      String reply = "";
+      
+      if (_scanMode == 1) {
+        // --- MODE 1: HYBRID (Render Primary + Gemini Fallback) ---
+        if (kDebugMode) print('☁️ [ML] Starting Hybrid Scan (Render Primary)...');
+        
+        Map<String, dynamic>? result;
+        bool usedGemini = false;
+        
+        try {
+          // 1. Try Render with a short 10s timeout (to catch Cold Boot)
+          result = await _externalAiService.classifyImage(bytes, timeout: const Duration(seconds: 10));
+          
+          final num confidence = result['confidence'] ?? 0.0;
+          final String rawLabel = result['label'] ?? 'Error';
 
-      final String prompt = '''
+          // 2. Check if we should fall back to Gemini
+          if (rawLabel.startsWith('Error') || rawLabel.startsWith('Exception') || confidence < 0.75) {
+            if (kDebugMode) print('⚠️ [ML] Render unsure or slow (Confidence: $confidence). Falling back to Gemini...');
+            usedGemini = true;
+          }
+        } catch (e) {
+            if (kDebugMode) print('⏳ [ML] Render timed out or failed ($e). Switching to Gemini Expert...');
+            usedGemini = true;
+        }
+
+        if (usedGemini) {
+          setState(() { _lastReply = "## Status\nConsulting Expert AI..."; });
+          final String prompt = '''
+            Analyze this waste item for a collector.
+            Classify it as: Biodegradable, Non-Biodegradable, or Recyclable.
+            Format: ## Classification\n[Category]\n\n## Note\n[A short 1-sentence tip for sorting]''';
+          
+          try {
+            _lastReply = await _chatService.sendMessageWithImages(prompt, [DataPart('image/jpeg', bytes)]);
+            _lastReply = _lastReply! + "\n\n*(Verified by Expert AI)*";
+          } catch (e) {
+            // Last resort: show whatever Render got, or an error
+            final String rawLabel = result?['label'] ?? 'Connection Error';
+            _lastReply = "## Classification\n${_externalAiService.mapLabelToCategory(rawLabel)}\n\n## Note\nExpert AI unreachable. Showing specialist estimate.";
+          }
+        } else {
+          // Render was fast and confident!
+          final String rawLabel = result!['label'];
+          final String mappedCategory = _externalAiService.mapLabelToCategory(rawLabel);
+          _lastReply = "## Classification\n$mappedCategory\n\n## Detected Material\n${rawLabel[0].toUpperCase()}${rawLabel.substring(1)} (Specialist AI)";
+        }
+      } else {
+        // --- MODE 0: GEMINI (Cloud Expert) ---
+        final String prompt = '''
 You are EcoSched, a professional waste sorting expert.
 Analyze the image and provide a structured response about the waste item.
 
@@ -100,25 +150,24 @@ Format your response exactly as follows using Markdown:
 ## Classification
 [State clearly if it is Biodegradable, Non-Biodegradable (Recyclable), Non-Biodegradable (Residual), or Hazardous]
 
-## Disposal Tip
-[One practical, concise sentence on how to dispose of it properly in Tago]
-
-## Key Fact
-[A short, interesting benefit of disposing this item correctly]
-
 If the image does not show waste or trash, reply with:
 "**Not Waste detected.** Please scan a waste item."
 ''';
       
-      final reply = await _chatService.sendMessageWithImages(
-        prompt,
-        [DataPart('image/jpeg', bytes)],
-      );
+        reply = await _chatService.sendMessageWithImages(
+          prompt,
+          [DataPart('image/jpeg', bytes)],
+        );
+      }
       
       if (mounted) {
         setState(() {
           _lastReply = reply;
         });
+        
+        // AUTOMATICALLY trigger the database save
+        _returnResultToCaller();
+        
         _showResultSheet();
       }
     } catch (e) {
@@ -169,15 +218,10 @@ If the image does not show waste or trash, reply with:
       appBar: AppBar(
         title: const Text('EcoScan Live'),
         backgroundColor: Colors.transparent,
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(color: Colors.black.withOpacity(0.2)),
-          ),
-        ),
-        foregroundColor: Colors.white,
         elevation: 0,
+        foregroundColor: Colors.white,
       ),
+      backgroundColor: Colors.black, // Professional camera background
       body: FutureBuilder(
         future: _initFuture,
         builder: (context, snapshot) {
@@ -187,11 +231,22 @@ If the image does not show waste or trash, reply with:
           return Stack(
             fit: StackFit.expand,
             children: [
-              // 1. Camera Preview or Captured Image
+              // 1. Camera Preview or Captured Image (Full Screen)
               if (_capturedImageBytes != null)
-                Image.memory(_capturedImageBytes!, fit: BoxFit.cover)
+                Positioned.fill(
+                  child: Image.memory(_capturedImageBytes!, fit: BoxFit.cover),
+                )
               else
-                CameraPreview(_controller!),
+                Positioned.fill(
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _controller!.value.previewSize?.height ?? 1080,
+                      height: _controller!.value.previewSize?.width ?? 1920,
+                      child: CameraPreview(_controller!),
+                    ),
+                  ),
+                ),
 
               // 2. Scanning Overlay (Dimmer)
               if (_isScanning)
@@ -201,13 +256,20 @@ If the image does not show waste or trash, reply with:
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const CircularProgressIndicator(color: AppTheme.primaryGreen),
-                        const SizedBox(height: 20),
                         Text(
-                          'Analyzing Waste...',
+                          'Starting AI Engine...',
                           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            'Render services spin down after inactivity. On your first scan, please wait up to 60 seconds for the "Cold Boot".',
+                            style: TextStyle(color: Colors.white70, fontSize: 13),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ],
@@ -260,6 +322,10 @@ If the image does not show waste or trash, reply with:
       ),
     );
   }
+
+  void _showHowItWorks() {
+    // Hidden to simplify UI
+  }
 }
 
 class _GlassTipCard extends StatelessWidget {
@@ -302,7 +368,7 @@ class _GlassTipCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Point at any waste item and tap the button. EcoSched will tell you if it\'s recyclable and how to dispose of it.',
+                'Point at any waste item and tap the button. EcoSched will identify if it is Biodegradable, Non-Biodegradable, or Recyclable.',
                 style: TextStyle(color: Colors.white70, height: 1.4),
               ),
             ],
@@ -362,40 +428,20 @@ class _GlassResultSheet extends StatelessWidget {
                      _buildStructuredContent(context),
                   
                   const SizedBox(height: 32),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: onScanAgain,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: const Text('Scan Again'),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: onScanAgain,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      if (!reply.contains('Not Waste detected'))
-                      Expanded(
-                          child: ElevatedButton(
-                            onPressed: onUseResult,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryGreen,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: const Text('Use Result'),
-                          ),
-                        ),
-                    ],
+                      child: const Text('Scan Again'),
+                    ),
                   ),
                 ],
               ),
@@ -430,8 +476,6 @@ class _GlassResultSheet extends StatelessWidget {
   }
 
   Widget _buildStructuredContent(BuildContext context) {
-    // Basic Markdown parsing tailored for the prompt
-    // We can just use the MarkdownBody widget for easy rich text
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -440,12 +484,26 @@ class _GlassResultSheet extends StatelessWidget {
                 const Icon(Icons.check_circle, color: AppTheme.primaryGreen, size: 28),
                 const SizedBox(width: 12),
                 Expanded(
-                    child: Text(
-                        'Scan Successful',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                        ),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                            Text(
+                                'Scan Successful',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                                '☁️ Processed via Cloud', 
+                                style: TextStyle(
+                                    color: AppTheme.primaryGreen,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                ),
+                            ),
+                        ],
                     ),
                 ),
             ],

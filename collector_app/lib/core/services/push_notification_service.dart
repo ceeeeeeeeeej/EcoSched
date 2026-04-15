@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
 class PushNotificationService {
@@ -12,7 +11,8 @@ class PushNotificationService {
   /// Registers the device for push notifications and saves the token to Supabase for a collector.
   static Future<void> registerDeviceForPush(String collectorId) async {
     try {
-      debugPrint('🔔 [PushNotification] Starting device registration for collector $collectorId...');
+      debugPrint(
+          '🔔 [PushNotification] Starting device registration for collector $collectorId...');
 
       // 1. Request notification permissions
       final settings = await _messaging.requestPermission(
@@ -58,11 +58,13 @@ class PushNotificationService {
       await _supabase.from('user_devices').upsert({
         'device_id': deviceId,
         'fcm_token': fcmToken,
-        'resident_id': collectorId, // Edge function uses this field to find the token
-        'barangay': 'Collector', 
+        'resident_id':
+            collectorId, // Edge function uses this field to find the token
+        'barangay': 'Collector',
       }, onConflict: 'device_id');
 
-      debugPrint('🎉 [PushNotification] Collector device successfully registered!');
+      debugPrint(
+          '🎉 [PushNotification] Collector device successfully registered!');
     } catch (e, stackTrace) {
       debugPrint('❌ [PushNotification] Error during registration: $e');
       debugPrint('Stacktrace: $stackTrace');

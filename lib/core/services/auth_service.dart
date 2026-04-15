@@ -3,10 +3,11 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/supabase_config.dart';
-import 'background_service.dart';
+// import 'background_service.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
 import '../utils/id_utils.dart';
+import 'push_notification_service.dart';
 
 class AuthService extends ChangeNotifier {
   Map<String, dynamic>? _user;
@@ -25,7 +26,9 @@ class AuthService extends ChangeNotifier {
 
   // For residents, consider them "authenticated" if they have location set
   bool get isResidentWithLocation =>
-      _user != null && _user!['role'] == 'resident' && _user!['barangay'] != null;
+      _user != null &&
+      _user!['role'] == 'resident' &&
+      _user!['barangay'] != null;
 
   bool get hasBarangaySelected => _user?['barangay'] != null;
 
@@ -50,9 +53,11 @@ class AuthService extends ChangeNotifier {
       if (event == AuthChangeEvent.signedIn && session != null) {
         _loadUserProfile(session.user.id).then((_) {
           if (_user != null) {
-            final serviceArea =
-                _user!['serviceArea'] ?? _user!['barangay'] ?? 'Mahayag';
-            BackgroundService.setSession(serviceArea: serviceArea);
+            final serviceArea = _user!['serviceArea'] ?? _user!['barangay'];
+            // BackgroundService.setSession(serviceArea: serviceArea);
+
+            // ✅ Save FCM token to users table now that a user is authenticated
+            PushNotificationService.saveFcmTokenForCurrentUser();
           }
         });
       } else if (event == AuthChangeEvent.signedOut) {
@@ -68,8 +73,8 @@ class AuthService extends ChangeNotifier {
       await _loadUserProfile(currentUser.id);
       if (_user != null) {
         final serviceArea =
-            _user!['serviceArea'] ?? _user!['barangay'] ?? 'Mahayag';
-        BackgroundService.setSession(serviceArea: serviceArea);
+            _user?['serviceArea'] ?? _user?['barangay'] ?? _user?['purok'];
+        // BackgroundService.setSession(serviceArea: serviceArea);
       }
     } else {
       // For residents, we now perform a fallback to a synthetic UUID
@@ -88,7 +93,8 @@ class AuthService extends ChangeNotifier {
     // Finalize initialization after ALL loading is done
     _isAuthCheckComplete = true;
     if (kDebugMode) {
-      print('🚀 FLASH: AuthService init complete. Authenticated: $isAuthenticated, Resident with Location: $isResidentWithLocation');
+      print(
+          '🚀 FLASH: AuthService init complete. Authenticated: $isAuthenticated, Resident with Location: $isResidentWithLocation');
     }
     notifyListeners();
   }
@@ -165,7 +171,8 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> _persistResidentLocation(
-      String barangay, String purok, String userId, {String? email, String? phone}) async {
+      String barangay, String purok, String userId,
+      {String? email, String? phone}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefKeyBarangay, barangay);
@@ -414,6 +421,10 @@ class AuthService extends ChangeNotifier {
         });
 
         await _loadUserProfile(response.user!.id);
+
+        // ✅ Save FCM token for newly registered user
+        await PushNotificationService.saveFcmTokenForCurrentUser();
+
         return _user;
       } else {
         _setError('Registration failed. Please try again.');
@@ -443,10 +454,8 @@ class AuthService extends ChangeNotifier {
     String? userId,
     String? email,
     String? phone,
-    String? currentLocation,
     bool persist = true,
   }) {
-    final locationString = '$purok, $barangay';
     final serviceArea = _mapBarangayToServiceArea(barangay);
 
     // If no userId provided, use the authenticated user ID
@@ -472,18 +481,20 @@ class AuthService extends ChangeNotifier {
       'purok': purok,
       'email': email,
       'phone': phone,
-      'location': locationString,
       'serviceArea': serviceArea,
-      if (currentLocation != null && currentLocation.isNotEmpty)
-        'currentLocation': currentLocation,
     };
 
     if (persist) {
-      _persistResidentLocation(barangay, purok, effectiveUserId, email: email, phone: phone);
+      _persistResidentLocation(barangay, purok, effectiveUserId,
+          email: email, phone: phone);
     }
-    
+
+    // ✅ Re-register push token with normalized barangay matching dashboard
+    PushNotificationService.registerDeviceForPush();
+
     notifyListeners();
   }
+
   /// Automatically register a resident in the database for tracking in the Admin Dashboard
   Future<void> registerResidentInDatabase({
     required String barangay,
@@ -541,16 +552,32 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Check if a resident already has a phone number registered in the database for this device/userId
+  Future<String?> getExistingResidentPhone(String userId) async {
+    try {
+      final response = await SupabaseConfig.client
+          .from(SupabaseConfig.usersTable)
+          .select('phone')
+          .eq('id', userId)
+          .maybeSingle();
+      
+      return response?['phone'] as String?;
+    } catch (e) {
+      if (kDebugMode) print('Error fetching existing resident phone: $e');
+      return null;
+    }
+  }
+
   String _mapBarangayToServiceArea(String barangay) {
+    // Standardize to the official names (No small letters in the key)
     final value = barangay.trim().toLowerCase();
     if (value.contains('victoria')) {
-      return 'victoria';
+      return 'Victoria';
     }
     if (value.contains('dayo-an') || value.contains('dayo-ay')) {
-      return 'dayo-an';
+      return 'Dayo-an';
     }
-    // Return the first part if it's a comma separated string (e.g. "Victoria, Tago" -> "victoria")
-    return value.split(',')[0].trim();
+    return barangay.trim();
   }
 
   // Sign in with location (barangay and purok) - kept for backward compatibility
@@ -673,8 +700,8 @@ class AuthService extends ChangeNotifier {
   /// Centralized logic to navigate to the correct dashboard based on role
   void goHome(BuildContext context) {
     if (isCollector()) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-          '/collector', (route) => false);
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil('/collector', (route) => false);
     } else {
       if (hasBarangaySelected) {
         Navigator.of(context)

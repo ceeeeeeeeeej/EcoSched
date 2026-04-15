@@ -1475,6 +1475,46 @@ export const dbService = {
                 .single();
 
             if (error) throw error;
+
+            // 🔔 Direct Push Notification Call
+            // This ensures reliability even if database triggers fail.
+            if (notificationData.skipPush) {
+                return { data, error: null };
+            }
+
+            try {
+                const pushPayload = {
+                    title: notificationData.title,
+                    body: notificationData.message,
+                    type: notificationData.type || 'info'
+                };
+
+                if (notificationData.userId || notificationData.user_id) {
+                    pushPayload.resident_id = notificationData.userId || notificationData.user_id;
+                } else if (notificationData.barangay) {
+                    pushPayload.barangay = notificationData.barangay;
+                    // If barangay is 'all', it becomes a system-wide broadcast
+                    if (notificationData.barangay.toLowerCase() === 'all') {
+                        pushPayload.broadcast = true;
+                    }
+                }
+
+                console.log('🚀 Invoking send-push-v2 directly from Dashboard...', pushPayload);
+                
+                supabase.functions.invoke('send-push-v2', {
+                    headers: { 
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                    },
+                    body: pushPayload
+                }).then(({ data: pushData, error: pushErr }) => {
+                    if (pushErr) console.error('💥 Direct push error:', pushErr);
+                    else console.log('✅ Direct push successful:', pushData);
+                });
+            } catch (pushEx) {
+                console.error('💥 Exception during direct push call:', pushEx);
+            }
+
             return { data, error: null };
         } catch (error) {
             console.error('Error in createNotification:', error);

@@ -9,8 +9,6 @@ import '../../../core/error/error_handler.dart';
 import '../../../core/routes/app_router.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/barangay_validator.dart';
-import '../../../core/config/supabase_config.dart';
-import 'package:geolocator/geolocator.dart';
 
 class ResidentLocationSelectionScreen extends StatefulWidget {
   final String? selectedBarangay;
@@ -57,44 +55,18 @@ class _ResidentLocationSelectionScreenState
     if (_selectedBarangay == null) {
       ErrorHandler.showErrorSnackBar(
         context,
-        'EcoSched is currently available only in the supported barangays.',
+        'Please select a barangay.',
       );
       return;
     }
 
-    setState(() => _isValidating = true);
-
-    try {
-      // 1. Get current location
-      Position position = await LocationService.getCurrentLocation();
-
-      // 2. Validate location
-      bool allowed = BarangayValidator.isInsideBarangay(
-        position,
-        _selectedBarangay!,
-      );
-
-      setState(() => _isValidating = false);
-
-      if (!allowed) {
-        _showAccessDeniedDialog();
-        return;
-      }
-
-      // 3. Save Device Token (No Login Needed)
-
-      // 4. If correct location -> continue
-      Navigator.of(context).pushNamed(
-        AppRoutes.residentLocationMap,
-        arguments: {
-          'barangay': _selectedBarangay,
-        },
-      );
-    } catch (e) {
-      setState(() => _isValidating = false);
-      ErrorHandler.showErrorSnackBar(context,
-          'Location Error: ${e.toString().replaceAll('Exception: ', '')}');
-    }
+    // GPS validation removed for simplification
+    Navigator.of(context).pushNamed(
+      AppRoutes.residentLocationMap,
+      arguments: {
+        'barangay': _selectedBarangay,
+      },
+    );
   }
 
   void _showAccessDeniedDialog() {

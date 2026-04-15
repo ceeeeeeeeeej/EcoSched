@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ecosched/core/services/notification_service.dart';
 import '../config/supabase_config.dart';
@@ -15,6 +17,10 @@ class PickupService extends ChangeNotifier {
   final Set<String> _notifiedStartedZonesToday = {};
   List<Map<String, dynamic>> _lastStreamedSchedules = [];
   bool _isLastCollector = false;
+  String? _lastScheduledHash;
+
+  static const String _prefKeySchedules = 'cached_pickups_v2';
+  static const String _prefKeyFixedSchedules = 'cached_fixed_schedules';
 
   List<Map<String, dynamic>> get scheduledPickups =>
       List.unmodifiable(_scheduledPickups);
@@ -97,10 +103,14 @@ class PickupService extends ChangeNotifier {
     _currentServiceArea = normalizedArea;
     _isLastCollector = isCollector;
 
-    // Clear stale data when switching areas
-    _lastStreamedSchedules.clear();
-    _scheduledPickups.clear();
-    notifyListeners();
+    // 1️⃣ Load from Cache first (Instant Offline Knowledge)
+    await _loadSchedulesFromCache();
+
+    // Clear stale data when switching areas (if not found in cache)
+    if (_lastStreamedSchedules.isEmpty) {
+      _scheduledPickups.clear();
+      notifyListeners();
+    }
 
     // Load fixed schedules first
     await _loadFixedSchedules();
@@ -125,6 +135,7 @@ class PickupService extends ChangeNotifier {
             .map((doc) => _mapScheduleDoc(doc['id'].toString(), doc))
             .toList();
 
+        _saveSchedulesToCache();
         _rebuildScheduledPickups(isCollector: isCollector);
       },
       onError: (e) {
@@ -158,6 +169,7 @@ class PickupService extends ChangeNotifier {
             _fixedSchedules[area]!.add(schedule);
           }
         }
+        _saveFixedSchedulesToCache();
         _rebuildScheduledPickups(isCollector: _isLastCollector);
       },
       onError: (e) {
@@ -223,8 +235,6 @@ class PickupService extends ChangeNotifier {
     // Schedule reminders for upcoming pickups
     _scheduleReminders(isCollector: actualIsCollector);
 
-    // Notify residents if scheduled items changed (Wait: _scheduleReminders already does this)
-    // We removed the old direct NotificationService loop here to prevent flooding
     notifyListeners();
   }
 
@@ -510,17 +520,26 @@ class PickupService extends ChangeNotifier {
   }
 
   Future<void> _scheduleReminders({bool isCollector = false}) async {
+    final now = DateTime.now();
+    
+    // --- SCHEDULE STABILIZATION ---
+    // Create a hash of all current pickups (ID + Status)
+    // If the hash hasn't changed, we don't need to re-register with the system.
+    final String currentHash = _scheduledPickups.map((p) => "${p['id']}-${p['status']}").join('|');
+    if (_lastScheduledHash == currentHash) {
+      if (kDebugMode) print('ℹ️ [Notification] Schedule unchanged. Skipping re-registration.');
+      return;
+    }
+    _lastScheduledHash = currentHash;
+
     if (kDebugMode) {
-      print(
-          '🛠️ PickupService: _scheduleReminders called (isCollector: $isCollector)');
-      print('   - Scheduled pickups count: ${_scheduledPickups.length}');
+      print('🔔 [Notification Report] Change detected. Re-registering alerts...');
     }
 
-    // 1. Clear ALL existing scheduled notifications to avoid duplicates/stale alerts
-    // (This ensures when we rebuild, we don't have old reminders for deleted/changed schedules)
-    await NotificationService.cancelAllScheduledNotifications();
-
-    final now = DateTime.now();
+    // 1. [REMOVED] Clear ALL existing scheduled notifications 
+    // We stop doing this globally to avoid killing manual test notifications 
+    // and to prevent resetting timers unnecessarily.
+    // await NotificationService.cancelAllScheduledNotifications();
     // --- ULTIMATE PRE-REMINDER DEDUPLICATION (CONSTANT IDENTITY) ---
     // If we have 100 duplicate entries, process only ONE per 4-hour window per area.
     // --- ULTIMATE PRE-REMINDER DEDUPLICATION (TRUE AREA STABILIZATION) ---
@@ -615,28 +634,107 @@ class PickupService extends ChangeNotifier {
 
           await NotificationService.showNotification(
             id: stableId + 1,
-            title: title,
-            body: body,
+            title: Translations.getBilingualText(title),
+            body: Translations.getBilingualText(body),
             payload: 'immediate_schedule_$stableId',
           );
+
+          if (kDebugMode) {
+            print('🔔 [Notification] "Collector On the way" alert triggered.');
+            print('   - ID: ${stableId + 1}');
+            print('   - Title: $title');
+          }
+
+          // PERSIST to database so it shows in history
+          try {
+            final String? userId = SupabaseConfig.client.auth.currentUser?.id;
+            if (userId != null) {
+              final dedupKey = 'incoming_${baseAreaLower}_${slotKey}';
+              
+              // Check if already exists
+              final existing = await SupabaseConfig.client
+                  .from(SupabaseConfig.notificationsTable)
+                  .select('id')
+                  .eq('user_id', userId)
+                  .eq('metadata->>dedup_key', dedupKey)
+                  .limit(1);
+
+              if (existing.isEmpty) {
+                await SupabaseConfig.client.from(SupabaseConfig.notificationsTable).insert({
+                  'user_id': userId,
+                  'title': title,
+                  'message': body,
+                  'type': 'alert',
+                  'priority': 'high',
+                  'is_read': false,
+                  'barangay': baseArea,
+                  'metadata': {'dedup_key': dedupKey},
+                });
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) print('Error persisting incoming alert: $e');
+          }
         }
 
         // --- STOP HERE FOR NEIGHBORING BARANGAYS ---
         // As requested, only "On the way" notifications are sent for other areas.
         if (!isHomeBarangay) continue;
 
-        // 2. 2 hours before (Only for Home)
+        // 2. Prepare Your Garbage (2 hours before)
         final hoursBeforeDate = date.subtract(const Duration(hours: 2));
         if (hoursBeforeDate.isAfter(now)) {
+          final String prepareTitle = '♻️ Please prepare your garbage';
+          final String prepareBody =
+              'Collection in $baseArea is scheduled for $timeStr. Please ready your bins.';
+
           await NotificationService.scheduleNotification(
             id: stableId + 2,
-            title: Translations.getBilingualText(
-                '🛣️ Put your garbage in designated area'),
-            body: Translations.getBilingualText(
-                'Your collection in $baseArea is scheduled in 2 hours. Get ready!'),
+            title: Translations.getBilingualText(prepareTitle),
+            body: Translations.getBilingualText(prepareBody),
             scheduledDate: hoursBeforeDate,
-            payload: 'resident_schedule_soon_$stableId',
+            payload: 'resident_schedule_prepare_$stableId',
           );
+
+          if (kDebugMode) {
+            print('🔔 [Notification] Scheduled alert:');
+            print('   - ID: ${stableId + 2}');
+            print('   - Title: $prepareTitle');
+            print('   - Target: $hoursBeforeDate');
+          }
+
+          // PERSIST to database so it shows in history
+          try {
+            final String? userId = SupabaseConfig.client.auth.currentUser?.id;
+            if (userId != null) {
+              final dedupKey = 'prepare_${baseAreaLower}_${slotKey}';
+              final existing = await SupabaseConfig.client
+                  .from(SupabaseConfig.notificationsTable)
+                  .select('id')
+                  .eq('user_id', userId)
+                  .eq('metadata->>dedup_key', dedupKey)
+                  .limit(1);
+
+              if (existing.isEmpty) {
+                await SupabaseConfig.client.from(SupabaseConfig.notificationsTable).insert({
+                  'user_id': userId,
+                  'title': Translations.getBilingualText(prepareTitle),
+                  'message': Translations.getBilingualText(prepareBody),
+                  'type': 'reminder',
+                  'priority': 'normal',
+                  'is_read': false,
+                  'barangay': baseArea,
+                  'metadata': {
+                    'dedup_key': dedupKey,
+                    'type': 'prepare_garbage',
+                    'scheduled_for': hoursBeforeDate.toIso8601String(),
+                  },
+                });
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) print('Error persisting prepare alert: $e');
+          }
         }
 
         // 3. Exactly on Time
@@ -649,22 +747,81 @@ class PickupService extends ChangeNotifier {
             scheduledDate: date,
             payload: 'resident_schedule_exact_$stableId',
           );
+          if (kDebugMode) {
+            print('🔔 [Notification] Scheduled alert:');
+            print('   - ID: ${stableId + 3}');
+            print('   - Title: ⏰ Collection Time');
+            print('   - Target: $date');
+          }
         }
 
         // 4. Day Before (at 6:00 PM) (Only for Home)
         final dayBeforeDate = DateTime(date.year, date.month, date.day, 18, 0)
             .subtract(const Duration(days: 1));
         if (dayBeforeDate.isAfter(now)) {
+          final String tomorrowTitle = '♻️ Collection Tomorrow';
+          final String tomorrowBody =
+              'Heads up! Waste collection in $baseArea is tomorrow at $timeStr. Please prepare your garbage.';
+
           await NotificationService.scheduleNotification(
             id: stableId + 4,
-            title: Translations.getBilingualText('♻️ Collection Tomorrow'),
-            body: Translations.getBilingualText(
-                'Heads up! Your waste collection in $baseArea is scheduled for tomorrow at $timeStr. prepare your garbage'),
+            title: Translations.getBilingualText(tomorrowTitle),
+            body: Translations.getBilingualText(tomorrowBody),
             scheduledDate: dayBeforeDate,
             payload: 'resident_schedule_tomorrow_$stableId',
           );
+          if (kDebugMode) {
+            print('🔔 [Notification] Scheduled alert:');
+            print('   - ID: ${stableId + 4}');
+            print('   - Title: ♻️ Collection Tomorrow');
+            print('   - Target: $dayBeforeDate');
+          }
         }
       }
+    }
+    
+    if (kDebugMode) {
+      print('✅ [Notification Report] Registration complete.');
+    }
+  }
+
+  /// DEBUG ONLY: Triggers all current scheduled notifications to fire IMMEDIATELY.
+  /// Use this to verify titles and bodies in the system tray.
+  Future<void> triggerAllNotificationsNow() async {
+    if (!kDebugMode) return;
+    
+    print('🚨 [Debug] Triggering all scheduled notifications immediately...');
+    final now = DateTime.now();
+    
+    for (final pickup in _scheduledPickups) {
+      final String originalAddress = (pickup['address'] ?? 'Unknown').toString();
+      final String baseArea = originalAddress.split(',')[0].trim();
+      final DateTime date = pickup['date'] as DateTime;
+      
+      final String baseAreaLower = baseArea.toLowerCase();
+      final int fourHourSlot = date.hour ~/ 4;
+      final slotKey = "${date.year}_${date.month}_${date.day}_$fourHourSlot";
+      final String contentKey = "${baseAreaLower}_$slotKey";
+      final int stableId = (contentKey.hashCode & 0x7FFFFFFF);
+
+      // Fire each type immediately
+      await NotificationService.showNotification(
+        id: stableId + 101, 
+        title: Translations.getBilingualText('🚛 Collector On Route'),
+        body: Translations.getBilingualText('The collector is on the way to $baseArea!'),
+      );
+      
+      await NotificationService.showNotification(
+        id: stableId + 104,
+        title: '♻️ Collection Tomorrow',
+        body: 'Heads up! Your waste collection in $baseArea is scheduled for tomorrow. Please prepare your garbage.',
+      );
+
+      await NotificationService.showNotification(
+        id: stableId + 103,
+        title: '⏰ Collection Time',
+        body: "It's already time! The collector will notify you when they start their route.",
+      );
     }
   }
 
@@ -775,13 +932,88 @@ class PickupService extends ChangeNotifier {
     }
   }
 
-  @override
-  void dispose() {
-    _scheduleSubscription?.cancel();
-    _fixedScheduleSubscription?.cancel();
-    super.dispose();
+  // --- OFFLINE CACHING LOGIC ---
+
+  Future<void> _saveSchedulesToCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final cacheData = _lastStreamedSchedules.map((e) {
+        final map = Map<String, dynamic>.from(e);
+        if (map['date'] is DateTime) {
+          map['date'] = (map['date'] as DateTime).toIso8601String();
+        }
+        if (map['originalDate'] is DateTime) {
+          map['originalDate'] = (map['originalDate'] as DateTime).toIso8601String();
+        }
+        return map;
+      }).toList();
+
+      await prefs.setString(_prefKeySchedules, jsonEncode(cacheData));
+      // MIRROR KEY: For background isolate compatibility
+      await prefs.setString('flutter.$_prefKeySchedules', jsonEncode(cacheData));
+
+      if (kDebugMode) print(' PickupService: Schedules saved to local cache (Mirrored)');
+    } catch (e) {
+      if (kDebugMode) print('❌ Error saving schedules to cache: $e');
+    }
   }
-}
+
+  Future<void> _saveFixedSchedulesToCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKeyFixedSchedules, jsonEncode(_fixedSchedules));
+      if (kDebugMode) print('💾 PickupService: Fixed schedules saved to local cache');
+    } catch (e) {
+      if (kDebugMode) print('❌ Error saving fixed schedules to cache: $e');
+    }
+  }
+
+  Future<void> _loadSchedulesFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load Streamed Schedules
+      final schedulesJson = prefs.getString(_prefKeySchedules);
+      if (schedulesJson != null) {
+        final List<dynamic> decoded = jsonDecode(schedulesJson);
+        _lastStreamedSchedules = decoded.map((e) {
+          final map = Map<String, dynamic>.from(e);
+          if (map['date'] != null) {
+            map['date'] = DateTime.parse(map['date']).toLocal();
+          }
+          if (map['originalDate'] != null) {
+            map['originalDate'] = DateTime.parse(map['originalDate']).toLocal();
+          }
+          return map;
+        }).toList();
+        if (kDebugMode) print('📖 PickupService: Loaded ${_lastStreamedSchedules.length} schedules from cache');
+      }
+
+      // Load Fixed Schedules
+      final fixedJson = prefs.getString(_prefKeyFixedSchedules);
+      if (fixedJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(fixedJson);
+        decoded.forEach((key, value) {
+          _fixedSchedules[key] = List<Map<String, dynamic>>.from(
+            (value as List).map((i) => Map<String, dynamic>.from(i))
+          );
+        });
+        if (kDebugMode) print('📖 PickupService: Loaded fixed schedules from cache');
+      }
+
+      // Rebuild immediately after loading cache
+      if (_lastStreamedSchedules.isNotEmpty || _fixedSchedules.isNotEmpty) {
+        _rebuildScheduledPickups();
+        // FORCE SYNC: Ensure the background isolate sees this immediately
+        _saveSchedulesToCache();
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ Error loading schedules from cache: $e');
+    }
+  }
+
+  @override
   void dispose() {
     _scheduleSubscription?.cancel();
     _fixedScheduleSubscription?.cancel();
